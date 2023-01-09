@@ -17,12 +17,15 @@
 
 #pragma once
 
+#include <algorithm>
+#include <iostream>
 #include <list>
 #include <memory>
 #include <mutex>  // NOLINT
 #include <utility>
 #include <vector>
 
+#include "common/logger.h"
 #include "container/hash/hash_table.h"
 
 namespace bustub {
@@ -43,6 +46,9 @@ class ExtendibleHashTable : public HashTable<K, V> {
    * @param bucket_size: fixed size for each bucket
    */
   explicit ExtendibleHashTable(size_t bucket_size);
+
+  // 将 Global Depth 的 num ➕ 1
+  auto IncrementGlobalDepth() -> void;
 
   /**
    * @brief Get the global depth of the directory.
@@ -65,11 +71,12 @@ class ExtendibleHashTable : public HashTable<K, V> {
 
   /**
    *
-   * TODO(P1): Add implementation
+   * TODO(P1): Add implementation, Finished
    *
    * @brief Find the value associated with the given key.
    *
-   * Use IndexOf(key) to find the directory index the key hashes to.
+   * Use IndexOf(key) to find the directory index the key hashes to.            use the index of key to find the
+   * directory index the key hashes to.
    *
    * @param key The key to be searched.
    * @param[out] value The value associated with the key.
@@ -112,20 +119,22 @@ class ExtendibleHashTable : public HashTable<K, V> {
    public:
     explicit Bucket(size_t size, int depth = 0);
 
+    Bucket(const Bucket &bucket);
+
     /** @brief Check if a bucket is full. */
     inline auto IsFull() const -> bool { return list_.size() == size_; }
 
     /** @brief Get the local depth of the bucket. */
-    inline auto GetDepth() const -> int { return depth_; }
+    inline auto GetDepth() const -> int { return depth_; }  // get local depth
 
     /** @brief Increment the local depth of a bucket. */
     inline void IncrementDepth() { depth_++; }
-
+    // get elements in bucket, Return the array of pairs
     inline auto GetItems() -> std::list<std::pair<K, V>> & { return list_; }
 
     /**
      *
-     * TODO(P1): Add implementation
+     * TODO(P1): Add implementation, Finished
      *
      * @brief Find the value associated with the given key in the bucket.
      * @param key The key to be searched.
@@ -136,7 +145,7 @@ class ExtendibleHashTable : public HashTable<K, V> {
 
     /**
      *
-     * TODO(P1): Add implementation
+     * TODO(P1): Add implementation, Finished
      *
      * @brief Given the key, remove the corresponding key-value pair in the bucket.
      * @param key The key to be deleted.
@@ -157,10 +166,15 @@ class ExtendibleHashTable : public HashTable<K, V> {
      */
     auto Insert(const K &key, const V &value) -> bool;
 
+    // 如果说 key 是存在于桶中， 那么直接更新 Return true, 否则 Return false
+    auto IfExistsThenUpdate(const K &key, const V &value) -> bool;
+
+    auto ClearTheBucket() -> void { list_.clear(); }
+
    private:
     // TODO(student): You may add additional private members and helper functions
     size_t size_;
-    int depth_;
+    int depth_;  // depth 的增加只有进行 bucket 进行 split Or 全部进行拓展才 increase
     std::list<std::pair<K, V>> list_;
   };
 
@@ -168,10 +182,10 @@ class ExtendibleHashTable : public HashTable<K, V> {
   // TODO(student): You may add additional private members and helper functions and remove the ones
   // you don't need.
 
-  int global_depth_;    // The global depth of the directory
-  size_t bucket_size_;  // The size of a bucket
-  int num_buckets_;     // The number of buckets in the hash table
-  mutable std::mutex latch_;
+  int global_depth_;          // The global depth of the directory
+  size_t bucket_size_;        // The size of a bucket
+  int num_buckets_;           // The number of buckets in the hash table
+  mutable std::mutex latch_;  // used for protect the global variable, do not use lock_guard but scoped_lock
   std::vector<std::shared_ptr<Bucket>> dir_;  // The directory of the hash table
 
   // The following functions are completely optional, you can delete them if you have your own ideas.
@@ -181,6 +195,11 @@ class ExtendibleHashTable : public HashTable<K, V> {
    * @param bucket The bucket to be redistributed.
    */
   auto RedistributeBucket(std::shared_ptr<Bucket> bucket) -> void;
+
+  // 进行 dir index ==> bucket 的重新映射之后进行 hash
+  auto RedistributeBucket1(std::list<std::pair<K, V>> &list) -> void;
+
+  void InsertInstance(const K &key, const V &value);
 
   /*****************************************************************
    * Must acquire latch_ first before calling the below functions. *
@@ -193,6 +212,7 @@ class ExtendibleHashTable : public HashTable<K, V> {
    */
   auto IndexOf(const K &key) -> size_t;
 
+  auto IncrementGlobalDepthinternal() -> void;
   auto GetGlobalDepthInternal() const -> int;
   auto GetLocalDepthInternal(int dir_index) const -> int;
   auto GetNumBucketsInternal() const -> int;

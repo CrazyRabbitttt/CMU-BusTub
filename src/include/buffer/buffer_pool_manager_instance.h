@@ -17,7 +17,7 @@
 #include <unordered_map>
 
 #include "buffer/buffer_pool_manager.h"
-#include "buffer/lru_k_replacer.h"
+#include "buffer/lru_k_replacer.h"  // use the lru-k
 #include "common/config.h"
 #include "container/hash/extendible_hash_table.h"
 #include "recovery/log_manager.h"
@@ -34,8 +34,8 @@ class BufferPoolManagerInstance : public BufferPoolManager {
   /**
    * @brief Creates a new BufferPoolManagerInstance.
    * @param pool_size the size of the buffer pool
-   * @param disk_manager the disk manager
-   * @param replacer_k the lookback constant k for the LRU-K replacer
+   * @param disk_manager the disk manager, for write or read the page to or from disk
+   * @param replacer_k the lookback constant k for the LRU-K replacer, the replacer of lru
    * @param log_manager the log manager (for testing only: nullptr = disable logging). Please ignore this for P1.
    */
   BufferPoolManagerInstance(size_t pool_size, DiskManager *disk_manager, size_t replacer_k = LRUK_REPLACER_K,
@@ -148,17 +148,17 @@ class BufferPoolManagerInstance : public BufferPoolManager {
   const size_t bucket_size_ = 4;
 
   /** Array of buffer pool pages. */
-  Page *pages_;
-  /** Pointer to the disk manager. */
+  Page *pages_;  // 保存 Page 数据的 Frame 数组
+  /** Pointer to the disk manager. 可能不会用到，消除编译器的警告 */
   DiskManager *disk_manager_ __attribute__((__unused__));
   /** Pointer to the log manager. Please ignore this for P1. */
   LogManager *log_manager_ __attribute__((__unused__));
   /** Page table for keeping track of buffer pool pages. */
-  ExtendibleHashTable<page_id_t, frame_id_t> *page_table_;
+  ExtendibleHashTable<page_id_t, frame_id_t> *page_table_;  // 用于 pageId ==> frameId
   /** Replacer to find unpinned pages for replacement. */
-  LRUKReplacer *replacer_;
+  LRUKReplacer *replacer_;  // 保存了 unpinned frame 的索引
   /** List of free frames that don't have any pages on them. */
-  std::list<frame_id_t> free_list_;
+  std::list<frame_id_t> free_list_;  // 所有的 Free frame 的索引(frame_id)
   /** This latch protects shared data structures. We recommend updating this comment to describe what it protects. */
   std::mutex latch_;
 

@@ -42,6 +42,33 @@ class BPlusTreeInternalPage : public BPlusTreePage {
   void SetKeyAt(int index, const KeyType &key);
   auto ValueAt(int index) const -> ValueType;
 
+  int ValueIndex(const ValueType &value) const;
+
+  ValueType LookUp(const KeyType &key, const KeyComparator &comparator);
+
+  void MoveHalfTo(BPlusTreeInternalPage *recipient);
+
+  void PopulateNewRoot(const ValueType &old_value, const KeyType &new_key, const ValueType &new_value);
+
+  int InsertNodeAfter(const ValueType &old_value, const KeyType &new_key, const ValueType &new_value);
+
+  void MoveAllTo(BPlusTreeInternalPage *recipient, int index_in_parent, BufferPoolManager *buffer_pool_manager);
+
+  void MoveFirstToEndOf(BPlusTreeInternalPage *recipient, int index_in_parent, BufferPoolManager *buffer_pool_manager);
+
+  void MoveLastToFrontOf(BPlusTreeInternalPage *recipient, int parent_index, BufferPoolManager *buffer_pool_manager);
+
+  void CopyLastFrom(const MappingType &pair, BufferPoolManager *buffer_pool_manager);
+
+  void CopyFirstFrom(const MappingType &pair, int index_in_parent, BufferPoolManager *buffer_pool_manager);
+
+  void UpdateAllNodesParent(BufferPoolManager *bmp);
+
+  void Remove(int index);
+
+  // Remove only key & value pairs in internal page and return the value
+  ValueType AdjustRootForInternal();
+
  private:
   // Flexible array member for page data.
   MappingType array_[1];

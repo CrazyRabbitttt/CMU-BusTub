@@ -51,8 +51,37 @@ class BPlusTree {
   // Remove a key and its value from this B+ tree.
   void Remove(const KeyType &key, Transaction *transaction = nullptr);
 
+  // 删除的时候 如果删除的是根结点的数据 进行更改
+  bool AdjustRoot(BPlusTreePage *old_root_node);
+
+  template <typename N>
+  bool MergeOrRedistribute(N *node);
+
+  template <typename N>
+  bool FindSibling(N *node, N * &sibling);
+
+  template <typename N>
+  void Redistribute(N *neighbor_node, N *node, int index);
+
+  template <typename N>
+  bool Merge(N *&neighbor_node, N *&node,
+                BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *&parent, int index);
+
   // return the value associated with a given key
   auto GetValue(const KeyType &key, std::vector<ValueType> *result, Transaction *transaction = nullptr) -> bool;
+
+  // Find the leaf page which contains the key
+  Page* FindLeafPage(const KeyType &key, const KeyComparator &comparator);
+
+  // Insert into leaf page
+  bool InsertIntoLeaf(const KeyType &key, const ValueType &value, const KeyComparator &comparator);
+
+  template <typename N> N *Split(N *node);
+
+  void InsertIntoParent(BPlusTreePage *old_node, const KeyType &key, BPlusTreePage *new_node);
+
+  // Start a new node
+  void StartNewNode(const KeyType &key, const ValueType &value);
 
   // return the page id of the root node
   auto GetRootPageId() -> page_id_t;
@@ -73,6 +102,12 @@ class BPlusTree {
 
   // read data from file and remove one by one
   void RemoveFromFile(const std::string &file_name, Transaction *transaction = nullptr);
+
+  bool Check(bool force = false);
+
+  bool isPageCorrect(page_id_t pid, MappingType &out);
+
+
 
  private:
   void UpdateRootPageId(int insert_record = 0);

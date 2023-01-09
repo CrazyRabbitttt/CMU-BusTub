@@ -50,6 +50,28 @@ class BPlusTreeLeafPage : public BPlusTreePage {
   void SetNextPageId(page_id_t next_page_id);
   auto KeyAt(int index) const -> KeyType;
 
+  int KeyIndex(const KeyType &key, const KeyComparator &comparator) const;
+
+  bool LookUp(const KeyType &key, ValueType &value, const KeyComparator &comparator) const;
+
+  int Insert(const KeyType &key, const ValueType &value, const KeyComparator &comparator);
+
+  void MoveAllTo(BPlusTreeLeafPage *recipient);
+
+  void MoveHalfTo(BPlusTreeLeafPage *recipient);
+
+  void MoveLastToFrontOf(BPlusTreeLeafPage *recipient, int parentIndex, BufferPoolManager *buffer_pool_manager);
+
+  void MoveFirstToEndOf(BPlusTreeLeafPage *recipient, int index_in_parent, BufferPoolManager *buffer_pool_manager);
+
+  void CopyLastFrom(MappingType &pair);
+
+  void CopyFirstFrom(const MappingType &item, int parentIndex, BufferPoolManager *buffer_pool_manager);
+
+  MappingType GetItem(int index);
+
+  int RemoveAndDeleteRecord(const KeyType &key, const KeyComparator &comparator);
+
  private:
   page_id_t next_page_id_;
   // Flexible array member for page data.
