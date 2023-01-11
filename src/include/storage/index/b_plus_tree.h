@@ -42,6 +42,8 @@ class BPlusTree {
   explicit BPlusTree(std::string name, BufferPoolManager *buffer_pool_manager, const KeyComparator &comparator,
                      int leaf_max_size = LEAF_PAGE_SIZE, int internal_max_size = INTERNAL_PAGE_SIZE);
 
+  void PrintMaxSize();
+
   // Returns true if this B+ tree has no keys and values.
   auto IsEmpty() const -> bool;
 
@@ -52,31 +54,37 @@ class BPlusTree {
   void Remove(const KeyType &key, Transaction *transaction = nullptr);
 
   // 删除的时候 如果删除的是根结点的数据 进行更改
-  bool AdjustRoot(BPlusTreePage *old_root_node);
+  auto AdjustRoot(BPlusTreePage *old_root_node) -> bool;
 
   template <typename N>
-  bool MergeOrRedistribute(N *node);
+  auto MergeOrRedistribute(N *node) -> bool;
 
   template <typename N>
-  bool FindSibling(N *node, N * &sibling);
+  auto IfCanMerge(N *node, N *neighbor_node) -> bool;
+
+  template <typename N>
+  auto FindSibling(N *node, N *&sibling) -> bool;
 
   template <typename N>
   void Redistribute(N *neighbor_node, N *node, int index);
 
   template <typename N>
-  bool Merge(N *&neighbor_node, N *&node,
-                BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *&parent, int index);
+  auto Merge(N *&neighbor_node, N *&node, BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *&parent, int index)
+      -> bool;
 
   // return the value associated with a given key
   auto GetValue(const KeyType &key, std::vector<ValueType> *result, Transaction *transaction = nullptr) -> bool;
 
   // Find the leaf page which contains the key
-  Page* FindLeafPage(const KeyType &key, const KeyComparator &comparator);
+  auto FindLeafPage(const KeyType &key, const KeyComparator &comparator) -> Page *;
+
+  auto FindLeftMostLeafPage() -> Page *;
 
   // Insert into leaf page
-  bool InsertIntoLeaf(const KeyType &key, const ValueType &value, const KeyComparator &comparator);
+  auto InsertIntoLeaf(const KeyType &key, const ValueType &value, const KeyComparator &comparator) -> bool;
 
-  template <typename N> N *Split(N *node);
+  template <typename N>
+  auto Split(N *node) -> N *;
 
   void InsertIntoParent(BPlusTreePage *old_node, const KeyType &key, BPlusTreePage *new_node);
 
@@ -102,12 +110,6 @@ class BPlusTree {
 
   // read data from file and remove one by one
   void RemoveFromFile(const std::string &file_name, Transaction *transaction = nullptr);
-
-  bool Check(bool force = false);
-
-  bool isPageCorrect(page_id_t pid, MappingType &out);
-
-
 
  private:
   void UpdateRootPageId(int insert_record = 0);

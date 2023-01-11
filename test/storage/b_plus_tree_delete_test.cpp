@@ -34,6 +34,8 @@ TEST(BPlusTreeTests, DeleteTest1) {
   // create transaction
   auto *transaction = new Transaction(0);
 
+  tree.PrintMaxSize();
+
   // create and fetch header_page
   page_id_t page_id;
   auto header_page = bpm->NewPage(&page_id);

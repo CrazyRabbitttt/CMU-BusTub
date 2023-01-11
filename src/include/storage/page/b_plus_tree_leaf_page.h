@@ -13,6 +13,7 @@
 #include <utility>
 #include <vector>
 
+#include "storage/page/b_plus_tree_internal_page.h"
 #include "storage/page/b_plus_tree_page.h"
 
 namespace bustub {
@@ -50,11 +51,11 @@ class BPlusTreeLeafPage : public BPlusTreePage {
   void SetNextPageId(page_id_t next_page_id);
   auto KeyAt(int index) const -> KeyType;
 
-  int KeyIndex(const KeyType &key, const KeyComparator &comparator) const;
+  auto KeyIndex(const KeyType &key, const KeyComparator &comparator) const -> int;
 
-  bool LookUp(const KeyType &key, ValueType &value, const KeyComparator &comparator) const;
+  auto LookUp(const KeyType &key, ValueType &value, const KeyComparator &comparator) const -> bool;
 
-  int Insert(const KeyType &key, const ValueType &value, const KeyComparator &comparator);
+  auto Insert(const KeyType &key, const ValueType &value, const KeyComparator &comparator) -> int;
 
   void MoveAllTo(BPlusTreeLeafPage *recipient);
 
@@ -68,9 +69,9 @@ class BPlusTreeLeafPage : public BPlusTreePage {
 
   void CopyFirstFrom(const MappingType &item, int parentIndex, BufferPoolManager *buffer_pool_manager);
 
-  MappingType GetItem(int index);
+  auto GetItem(int index) -> const MappingType &;
 
-  int RemoveAndDeleteRecord(const KeyType &key, const KeyComparator &comparator);
+  auto RemoveAndDeleteRecord(const KeyType &key, const KeyComparator &comparator) -> int;
 
  private:
   page_id_t next_page_id_;
