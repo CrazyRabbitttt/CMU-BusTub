@@ -253,7 +253,27 @@ TEST(BPlusTreeTests, InsertTest1) {
   std::cout << "---------" << std::endl;
   int i = 0;
   (void)i;
-  for (auto key : keys) {
+
+  std::vector<int64_t> arr{0,634,7529,9154,783,4330,7993,3895,7931,6702,6793,8909,2356,1140,766,6925,4703,147,3866,636,3817,8827,2562,8562,358,375,4874,9004,1014,6176,9229,1654,2767,474,6763,122,1673,1544,
+                       2557,9178,4070,4652,8712,1167,4633,1145,8532,3193,5158,80,2617,8110,2981,1834,9656,3405,3322,2418,6150,
+                       3543,4392,108,3528,4942,8584,6858,6098,472,6233,7349,9050};
+
+  for (int j = 1; j <= 65; j++) {
+    int64_t key = arr[j];
+    i++;
+    std::cout << "counter : " << i << std::endl;
+    int64_t value = key & 0xFFFFFFFF;
+    rid.Set(static_cast<int32_t>(key >> 32), value);
+    index_key.SetFromInteger(key);
+    tree.Insert(index_key, rid, transaction);
+  }
+//  tree.Draw(bpm, "tmp_tree.dot");
+  std::cout << "the mid line ======== \n";
+  return;
+
+
+
+  for (auto &key : keys) {
     i++;
     int64_t value = key & 0xFFFFFFFF;
     rid.Set(static_cast<int32_t>(key >> 32), value);

@@ -97,6 +97,9 @@ INDEX_TEMPLATE_ARGUMENTS
 int B_PLUS_TREE_INTERNAL_PAGE_TYPE::InsertNodeAfter(const ValueType &old_value, const KeyType &new_key,
                                                     const ValueType &new_value) {
   int index = ValueIndex(old_value) + 1;
+//  if (index == 0) {
+//    throw "oops! The value is not in this internal page";
+//  }
   assert(index > 0);
   IncreaseSize(1);
   int curSize = GetSize();
@@ -107,7 +110,7 @@ int B_PLUS_TREE_INTERNAL_PAGE_TYPE::InsertNodeAfter(const ValueType &old_value, 
   }
   array_[index].first = new_key;
   array_[index].second = new_value;
-  return curSize;
+  return static_cast<int>(curSize);
 }
 
 INDEX_TEMPLATE_ARGUMENTS
@@ -146,6 +149,7 @@ void B_PLUS_TREE_INTERNAL_PAGE_TYPE::UpdateAllNodesParent(BufferPoolManager *bmp
     Page *child_page = bmp->FetchPage(value);
     auto *child_node = reinterpret_cast<BPlusTreePage *>(child_page->GetData());
     child_node->SetParentPageId(GetPageId());
+    bmp->UnpinPage(value, true);
   }
 }
 
@@ -175,7 +179,7 @@ void B_PLUS_TREE_INTERNAL_PAGE_TYPE::MoveFirstToEndOf(BPlusTreeInternalPage *rec
   buffer_pool_manager->UnpinPage(child_page_id, true);
   // 更新一下索引的 Key，因为首节点更改了嘛
   page = buffer_pool_manager->FetchPage(GetParentPageId());
-  BPlusTreeInternalPage *parent_node = reinterpret_cast<BPlusTreeInternalPage *>(page->GetData());
+  auto *parent_node = reinterpret_cast<BPlusTreeInternalPage *>(page->GetData());
   parent_node->SetKeyAt(parent_node->ValueIndex(GetPageId()), array_[0].first);
   buffer_pool_manager->UnpinPage(GetParentPageId(), true);
 }

@@ -87,6 +87,10 @@ class BufferPoolManager {
   /** @return size of the buffer pool */
   virtual auto GetPoolSize() -> size_t = 0;
 
+  auto Check() -> bool {
+    return CheckAllUnpinedImp();
+  }
+
  protected:
   /**
    * Grading function. Do not modify!
@@ -141,5 +145,8 @@ class BufferPoolManager {
    * Flushes all the pages in the buffer pool to disk.
    */
   virtual void FlushAllPgsImp() = 0;
+
+  virtual auto CheckAllUnpinedImp() -> bool = 0;
+
 };
 }  // namespace bustub

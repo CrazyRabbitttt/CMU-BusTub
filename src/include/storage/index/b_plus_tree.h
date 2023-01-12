@@ -111,6 +111,13 @@ class BPlusTree {
   // read data from file and remove one by one
   void RemoveFromFile(const std::string &file_name, Transaction *transaction = nullptr);
 
+  // DEBUG
+  auto isPageCorr(page_id_t pid, std::pair<KeyType, KeyType> &out) -> bool ;
+
+  auto isBalanced(page_id_t pid) -> int;
+
+  auto Check() -> bool;
+
  private:
   void UpdateRootPageId(int insert_record = 0);
 

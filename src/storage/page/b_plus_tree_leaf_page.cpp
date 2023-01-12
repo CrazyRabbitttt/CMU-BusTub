@@ -154,7 +154,7 @@ void B_PLUS_TREE_LEAF_PAGE_TYPE::MoveHalfTo(B_PLUS_TREE_LEAF_PAGE_TYPE *recipien
 }
 
 INDEX_TEMPLATE_ARGUMENTS
-auto B_PLUS_TREE_LEAF_PAGE_TYPE::GetItem(int index) -> const MappingType &{
+auto B_PLUS_TREE_LEAF_PAGE_TYPE::GetItem(int index) -> const MappingType & {
   assert(index >= 0 && index < GetSize());
   return array_[index];
 }
@@ -194,7 +194,7 @@ void B_PLUS_TREE_LEAF_PAGE_TYPE::CopyFirstFrom(const std::pair<KeyType, ValueTyp
 
   /** first entry 更新过后需要同时更新 relevant page*/
   Page *page = buffer_pool_manager->FetchPage(GetParentPageId());
-  B_PLUS_TREE_INTERNAL_PAGE *parent_node = reinterpret_cast<B_PLUS_TREE_INTERNAL_PAGE *>(page->GetData());
+  auto *parent_node = reinterpret_cast<B_PLUS_TREE_INTERNAL_PAGE *>(page->GetData());
   parent_node->SetKeyAt(parentIndex, array_[0].first);
   buffer_pool_manager->UnpinPage(GetParentPageId(), true);
 }
