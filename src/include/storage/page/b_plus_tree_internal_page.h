@@ -48,7 +48,7 @@ class BPlusTreeInternalPage : public BPlusTreePage {
 
   auto LookUp(const KeyType &key, const KeyComparator &comparator) -> ValueType;
 
-  void MoveHalfTo(BPlusTreeInternalPage *recipient);
+  void MoveHalfTo(BPlusTreeInternalPage *recipient, BufferPoolManager *buffer_pool_manager);
 
   void PopulateNewRoot(const ValueType &old_value, const KeyType &new_key, const ValueType &new_value);
 

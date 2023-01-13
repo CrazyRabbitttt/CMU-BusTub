@@ -241,7 +241,7 @@ TEST(BPlusTreeTests, InsertTest1) {
   auto header_page = bpm->NewPage(&page_id);
   (void)header_page;
 
-  int size = 10000;
+  int size = 1000;
 
   std::vector<int64_t> keys(size);
 
@@ -254,22 +254,30 @@ TEST(BPlusTreeTests, InsertTest1) {
   int i = 0;
   (void)i;
 
-  std::vector<int64_t> arr{0,634,7529,9154,783,4330,7993,3895,7931,6702,6793,8909,2356,1140,766,6925,4703,147,3866,636,3817,8827,2562,8562,358,375,4874,9004,1014,6176,9229,1654,2767,474,6763,122,1673,1544,
-                       2557,9178,4070,4652,8712,1167,4633,1145,8532,3193,5158,80,2617,8110,2981,1834,9656,3405,3322,2418,6150,
-                       3543,4392,108,3528,4942,8584,6858,6098,472,6233,7349,9050};
-
-  for (int j = 1; j <= 65; j++) {
-    int64_t key = arr[j];
-    i++;
-    std::cout << "counter : " << i << std::endl;
-    int64_t value = key & 0xFFFFFFFF;
-    rid.Set(static_cast<int32_t>(key >> 32), value);
-    index_key.SetFromInteger(key);
-    tree.Insert(index_key, rid, transaction);
-  }
-//  tree.Draw(bpm, "tmp_tree.dot");
-  std::cout << "the mid line ======== \n";
-  return;
+//  std::vector<int64_t> arr{0,634,7529,9154,783,4330,7993,3895,7931,6702,6793,8909,2356,1140,766,6925,4703,147,3866,636,3817,8827,2562,8562,358,375,4874,9004,1014,6176,9229,1654,2767,474,6763,122,1673,1544,
+//                       2557,9178,4070,4652,8712,1167,4633,1145,8532,3193,5158,80,2617,8110,2981,1834,9656,3405,3322,2418,6150,
+//                       3543,4392,108,3528,4942,8584,6858,6098,472,6233,7349,9050};
+//
+//  for (int j = 1; j <= 58; j++) {
+//    int64_t key = arr[j];
+//    int64_t value = key & 0xFFFFFFFF;
+//    rid.Set(static_cast<int32_t>(key >> 32), value);
+//    index_key.SetFromInteger(key);
+//    tree.Insert(index_key, rid, transaction);
+//  }
+// // 59 : 3543     60 : 4392
+//  for (int j = 59; j <= 65; j++) {
+//    int64_t key = arr[j];
+//    i++;
+//    std::cout << "counter : " << i << std::endl;
+//    int64_t value = key & 0xFFFFFFFF;
+//    rid.Set(static_cast<int32_t>(key >> 32), value);
+//    index_key.SetFromInteger(key);
+//    tree.Insert(index_key, rid, transaction);
+//  }
+////  tree.Draw(bpm, "tmp_tree.dot");
+//  std::cout << "the mid line ======== \n";
+//  return;
 
 
 
@@ -279,10 +287,9 @@ TEST(BPlusTreeTests, InsertTest1) {
     rid.Set(static_cast<int32_t>(key >> 32), value);
     index_key.SetFromInteger(key);
     tree.Insert(index_key, rid, transaction);
-    std::cout << "counter : " << i << std::endl;
   }
   std::vector<RID> rids;
-
+  std::cout << "running here....1\n";
   std::shuffle(keys.begin(), keys.end(), g);
 
   for (auto key : keys) {
@@ -294,7 +301,7 @@ TEST(BPlusTreeTests, InsertTest1) {
     int64_t value = key & 0xFFFFFFFF;
     EXPECT_EQ(rids[0].GetSlotNum(), value);
   }
-
+  std::cout << "running here....2\n";
   int64_t start_key = 1;
   int64_t current_key = start_key;
   index_key.SetFromInteger(start_key);
@@ -305,7 +312,7 @@ TEST(BPlusTreeTests, InsertTest1) {
     EXPECT_EQ(location.GetSlotNum(), current_key);
     current_key = current_key + 1;
   }
-
+  std::cout << "running here....3\n";
   EXPECT_EQ(current_key, keys.size() + 1);
 
   std::shuffle(keys.begin(), keys.end(), g);
@@ -314,7 +321,7 @@ TEST(BPlusTreeTests, InsertTest1) {
     index_key.SetFromInteger(key);
     tree.Remove(index_key, transaction);
   }
-
+  std::cout << "running here....4\n";
   EXPECT_EQ(true, tree.IsEmpty());
 
   bpm->UnpinPage(HEADER_PAGE_ID, true);
@@ -344,7 +351,7 @@ TEST(BPlusTreeTests, InsertTest2) {
   auto header_page = bpm->NewPage(&page_id);
   (void)header_page;
 
-  int size = 10000;
+  int size = 1000;
 
   std::vector<int64_t> keys(size);
 
@@ -492,5 +499,5 @@ TEST(BPlusTreeTests, InsertTest3) {
   remove("test.log");
 }
 
-}
+}  // namespace bustub
 

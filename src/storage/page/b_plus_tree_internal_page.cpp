@@ -94,23 +94,20 @@ void B_PLUS_TREE_INTERNAL_PAGE_TYPE::PopulateNewRoot(const ValueType &old_value,
 }
 
 INDEX_TEMPLATE_ARGUMENTS
-int B_PLUS_TREE_INTERNAL_PAGE_TYPE::InsertNodeAfter(const ValueType &old_value, const KeyType &new_key,
-                                                    const ValueType &new_value) {
+auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::InsertNodeAfter(const ValueType &old_value, const KeyType &new_key,
+                                                     const ValueType &new_value) -> int {
   int index = ValueIndex(old_value) + 1;
-//  if (index == 0) {
-//    throw "oops! The value is not in this internal page";
-//  }
   assert(index > 0);
   IncreaseSize(1);
-  int curSize = GetSize();
+  int cur_size = GetSize(); // the cur_size is after increment
   /** make room to store the pair */
-  for (int i = curSize - 1; i > index; i--) {
+  for (int i = cur_size - 1; i > index; i--) {
     array_[i].first = array_[i - 1].first;
     array_[i].second = array_[i - 1].second;
   }
   array_[index].first = new_key;
   array_[index].second = new_value;
-  return static_cast<int>(curSize);
+  return static_cast<int>(cur_size);
 }
 
 INDEX_TEMPLATE_ARGUMENTS
@@ -234,17 +231,23 @@ auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::AdjustRootForInternal() -> ValueType {
 }
 
 INDEX_TEMPLATE_ARGUMENTS
-void B_PLUS_TREE_INTERNAL_PAGE_TYPE::MoveHalfTo(B_PLUS_TREE_INTERNAL_PAGE_TYPE *recipient) {
-  //  assert(GetSize() == GetMaxSize());
+void B_PLUS_TREE_INTERNAL_PAGE_TYPE::MoveHalfTo(B_PLUS_TREE_INTERNAL_PAGE_TYPE *recipient,
+                                                BufferPoolManager *buffer_pool_manager) {
+  assert(GetSize() == GetMaxSize() + 1);
   assert(recipient != nullptr);
   int total = GetSize();
   /** 目前 internal page 已经是满了的状态， 需要进行删除节点 & 移动一半的 node */
   int copy_idx = total / 2;
+  page_id_t recip_page_id = recipient->GetPageId();
   for (int i = copy_idx; i < total; i++) {
     recipient->array_[i - copy_idx].first = array_[i].first;
     recipient->array_[i - copy_idx].second = array_[i].second;
+    // update children's parent page
+    Page *child_raw_page = buffer_pool_manager->FetchPage(array_[i].second);
+    auto child_node = reinterpret_cast<BPlusTreePage *>(child_raw_page->GetData());
+    child_node->SetParentPageId(recip_page_id);
+    buffer_pool_manager->UnpinPage(array_[i].second, true);
   }
-
   /** Set the size of pages */
   SetSize(copy_idx);
   recipient->SetSize(total - copy_idx);
