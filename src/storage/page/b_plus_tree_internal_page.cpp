@@ -114,7 +114,7 @@ INDEX_TEMPLATE_ARGUMENTS
 void B_PLUS_TREE_INTERNAL_PAGE_TYPE::MoveAllTo(BPlusTreeInternalPage<KeyType, ValueType, KeyComparator> *recipient,
                                                int index_in_parent, BufferPoolManager *buffer_pool_manager) {
   int start = recipient->GetSize();
-  page_id_t recipPageId = recipient->GetPageId();
+  page_id_t recip_page_id = recipient->GetPageId();
   // 1. find the parent page
   Page *page = buffer_pool_manager->FetchPage(GetParentPageId());
   assert(page != nullptr);
@@ -128,7 +128,7 @@ void B_PLUS_TREE_INTERNAL_PAGE_TYPE::MoveAllTo(BPlusTreeInternalPage<KeyType, Va
     /** update children's parent page*/
     Page *child_page = buffer_pool_manager->FetchPage(array_[i].second);
     auto *child_node = reinterpret_cast<BPlusTreePage *>(child_page->GetData());
-    child_node->SetParentPageId(recipPageId);
+    child_node->SetParentPageId(recip_page_id);
     buffer_pool_manager->UnpinPage(array_[i].second, true);
   }
   // update relevant key & value in its parent page
@@ -164,7 +164,13 @@ void B_PLUS_TREE_INTERNAL_PAGE_TYPE::MoveFirstToEndOf(BPlusTreeInternalPage *rec
                                                       BufferPoolManager *buffer_pool_manager) {
   MappingType pair{KeyAt(0), ValueAt(0)};
   IncreaseSize(-1);
-  memmove(array_, array_ + 1, static_cast<size_t>(GetSize() * sizeof(MappingType)));
+
+  // not memmove, just directly copy nodes
+  //  memmove(array_, array_ + 1, static_cast<size_t>(GetSize() * sizeof(MappingType)));
+  for (int i = 1; i < GetSize(); i++) {
+    array_[i-1] = array_[i];
+  }
+
   recipient->CopyLastFrom(pair, buffer_pool_manager);
   // update child node's parent page id
   page_id_t child_page_id = pair.second;
@@ -201,7 +207,11 @@ void B_PLUS_TREE_INTERNAL_PAGE_TYPE::CopyFirstFrom(const MappingType &pair, int 
                                                    BufferPoolManager *buffer_pool_manager) {
   // 将 first entry 设置为 pair
   assert(GetSize() + 1 <= GetMaxSize());
-  memmove(array_ + 1, array_, GetSize() * sizeof(MappingType));
+  // memmove(array_ + 1, array_, GetSize() * sizeof(MappingType));
+  for (int i = GetSize(); i >= 1; i--) {
+    array_[i] = array_[i-1];
+  }
+
   IncreaseSize(1);
   array_[0] = pair;
 

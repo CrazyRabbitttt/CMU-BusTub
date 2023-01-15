@@ -20,7 +20,9 @@ INDEX_TEMPLATE_ARGUMENTS
 INDEXITERATOR_TYPE::~IndexIterator() = default;  // NOLINT
 
 INDEX_TEMPLATE_ARGUMENTS
-auto INDEXITERATOR_TYPE::IsEnd() -> bool { return cur_page_->GetNextPageId() == INVALID_PAGE_ID && cur_index_ == cur_page_->GetSize(); }
+auto INDEXITERATOR_TYPE::IsEnd() -> bool {
+  return cur_page_ == nullptr;
+}
 
 INDEX_TEMPLATE_ARGUMENTS
 auto INDEXITERATOR_TYPE::operator*() -> const MappingType & { return cur_page_->GetItem(cur_index_); }
@@ -28,15 +30,19 @@ auto INDEXITERATOR_TYPE::operator*() -> const MappingType & { return cur_page_->
 INDEX_TEMPLATE_ARGUMENTS
 auto INDEXITERATOR_TYPE::operator++() -> INDEXITERATOR_TYPE & {
   cur_index_++;
-  // first check if the index is not the end of the node
-  if (cur_index_ == cur_page_->GetSize() && cur_page_->GetNextPageId() != INVALID_PAGE_ID) {
+  // 还是需要最终判断一下是否到达了 End() -> leaf_nod, bpm, GetSize()
+  if (cur_index_ >= cur_page_->GetSize()) {
     page_id_t next_page_id = cur_page_->GetNextPageId();
-    Page * next_page = buffer_pool_manager_->FetchPage(next_page_id);
-    auto next_node = reinterpret_cast<B_PLUS_TREE_LEAF_PAGE_TYPE*>(next_page->GetData());
-    cur_page_ = next_node;
-
-    buffer_pool_manager_->UnpinPage(next_page_id, false);
-    cur_index_ = 0;
+    buffer_pool_manager_->UnpinPage(cur_page_->GetPageId(), false);
+    int max_size = cur_page_->GetMaxSize();
+    if (next_page_id == INVALID_PAGE_ID) {
+      cur_page_ = nullptr;    // in the end of the b plus tree
+      cur_index_ = max_size;
+    } else {
+      Page *page = buffer_pool_manager_->FetchPage(next_page_id);
+      cur_page_ = reinterpret_cast<B_PLUS_TREE_LEAF_PAGE_TYPE*>(page->GetData());
+      cur_index_ = 0;
+    }
   }
   return *this;
 }
