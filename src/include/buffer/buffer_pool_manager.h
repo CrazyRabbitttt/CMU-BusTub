@@ -112,6 +112,8 @@ class BufferPoolManager {
    */
   virtual auto FetchPgImp(page_id_t page_id) -> Page * = 0;
 
+//  virtual auto CheckAllUnPinedImp() -> bool = 0;
+
   /**
    * Unpin the target page from the buffer pool.
    * @param page_id id of page to be unpinned
@@ -145,8 +147,6 @@ class BufferPoolManager {
    * Flushes all the pages in the buffer pool to disk.
    */
   virtual void FlushAllPgsImp() = 0;
-
-  virtual auto CheckAllUnpinedImp() -> bool = 0;
 
 };
 }  // namespace bustub

@@ -12,7 +12,6 @@
 
 #include <queue>
 #include <string>
-#include <utility>
 #include <vector>
 
 #include "concurrency/transaction.h"
@@ -113,9 +112,9 @@ class BPlusTree {
   void RemoveFromFile(const std::string &file_name, Transaction *transaction = nullptr);
 
   // DEBUG
-  auto IsPageCorr(page_id_t pid, std::pair<KeyType, KeyType> &out) -> bool;
+  auto isPageCorr(page_id_t pid, std::pair<KeyType, KeyType> &out) -> bool ;
 
-  auto IsBalanced(page_id_t pid) -> int;
+  auto isBalanced(page_id_t pid) -> int;
 
   auto Check() -> bool;
 

@@ -12,7 +12,6 @@
 
 #include <queue>
 #include <string>
-#include <utility>
 #include <vector>
 
 #include "concurrency/transaction.h"
@@ -55,37 +54,34 @@ class BPlusTree {
   void Remove(const KeyType &key, Transaction *transaction = nullptr);
 
   // 删除的时候 如果删除的是根结点的数据 进行更改
-  auto AdjustRoot(BPlusTreePage *old_root_node) -> bool;
+  bool AdjustRoot(BPlusTreePage *old_root_node);
 
   template <typename N>
-  auto MergeOrRedistribute(N *node) -> bool;
+  bool MergeOrRedistribute(N *node);
 
   template <typename N>
-  auto IfCanMerge(N *node, N *neighbor_node) -> bool;
+  bool IfCanMerge(N *node, N *neighbor_node);
 
   template <typename N>
-  auto FindSibling(N *node, N *&sibling) -> bool;
+  bool FindSibling(N *node, N *&sibling);
 
   template <typename N>
   void Redistribute(N *neighbor_node, N *node, int index);
 
   template <typename N>
-  auto Merge(N *&neighbor_node, N *&node, BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *&parent, int index)
-      -> bool;
+  bool Merge(N *&neighbor_node, N *&node, BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *&parent, int index);
 
   // return the value associated with a given key
   auto GetValue(const KeyType &key, std::vector<ValueType> *result, Transaction *transaction = nullptr) -> bool;
 
   // Find the leaf page which contains the key
-  auto FindLeafPage(const KeyType &key, const KeyComparator &comparator) -> Page *;
-
-  auto FindLeftMostLeafPage() -> Page *;
+  Page *FindLeafPage(const KeyType &key, const KeyComparator &comparator);
 
   // Insert into leaf page
-  auto InsertIntoLeaf(const KeyType &key, const ValueType &value, const KeyComparator &comparator) -> bool;
+  bool InsertIntoLeaf(const KeyType &key, const ValueType &value, const KeyComparator &comparator);
 
   template <typename N>
-  auto Split(N *node) -> N *;
+  N *Split(N *node);
 
   void InsertIntoParent(BPlusTreePage *old_node, const KeyType &key, BPlusTreePage *new_node);
 
@@ -112,12 +108,9 @@ class BPlusTree {
   // read data from file and remove one by one
   void RemoveFromFile(const std::string &file_name, Transaction *transaction = nullptr);
 
-  // DEBUG
-  auto IsPageCorr(page_id_t pid, std::pair<KeyType, KeyType> &out) -> bool;
+  bool Check(bool force = false);
 
-  auto IsBalanced(page_id_t pid) -> int;
-
-  auto Check() -> bool;
+  bool isPageCorrect(page_id_t pid, MappingType &out);
 
  private:
   void UpdateRootPageId(int insert_record = 0);

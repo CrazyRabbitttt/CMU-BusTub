@@ -92,12 +92,12 @@ INDEX_TEMPLATE_ARGUMENTS
 auto B_PLUS_TREE_LEAF_PAGE_TYPE::RemoveAndDeleteRecord(const KeyType &key, const KeyComparator &comparator) -> int {
   int index = KeyIndex(key, comparator);
   if (index < GetSize() && comparator(array_[index].first, key) == 0) {
-    //    memmove(array_ + index, array_ + index + 1,
-    //            static_cast<size_t>((GetSize() - index - 1)*sizeof (MappingType)));
+    memmove(array_ + index, array_ + index + 1,
+            static_cast<size_t>((GetSize() - index - 1)*sizeof (MappingType)));
     /** 后面所有的数据都前移 -> 删除 index 位置的数据*/
-    for (int i = index + 1; i < GetSize(); i++) {
-      array_[i - 1] = array_[i];
-    }
+//    for (int i = index + 1; i < GetSize(); i++) {
+//      array_[i - 1] = array_[i];
+//    }
     IncreaseSize(-1);
   }
   return GetSize();
@@ -166,11 +166,11 @@ void B_PLUS_TREE_LEAF_PAGE_TYPE::MoveFirstToEndOf(BPlusTreeLeafPage *recipient, 
                                                   BufferPoolManager *buffer_pool_manager) {
   MappingType pair = GetItem(0);
   IncreaseSize(-1);
-  //    memmove(array_, array_ + 1, static_cast<size_t>(GetSize()*sizeof(MappingType)));
+    memmove(array_, array_ + 1, static_cast<size_t>(GetSize()*sizeof(MappingType)));
   /** 相较于拷贝数据, memmove 直接拷贝内存数据更快 */
-  for (int i = 1; i < GetSize(); i++) {
-    array_[i - 1] = array_[i];
-  }
+//  for (int i = 1; i < GetSize(); i++) {
+//    array_[i-1] = array_[i];
+//  }
   //  memmove(array_, array_ + 1, static_cast<size_t>(GetSize() * sizeof(MappingType)));
   /** 将 pair 的数据插入到 recipient 的末尾 */
   recipient->CopyLastFrom(pair);
@@ -195,7 +195,7 @@ void B_PLUS_TREE_LEAF_PAGE_TYPE::CopyFirstFrom(const std::pair<KeyType, ValueTyp
                                                BufferPoolManager *buffer_pool_manager) {
   assert(GetSize() + 1 < GetMaxSize());
   for (int i = GetSize(); i >= 0; i--) {
-    array_[i] = array_[i - 1];
+    array_[i] = array_[i-1];
   }
   //  memmove(array_ + 1, array_, GetSize() * sizeof(MappingType));
   IncreaseSize(1);

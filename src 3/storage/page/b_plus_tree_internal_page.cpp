@@ -99,7 +99,8 @@ auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::InsertNodeAfter(const ValueType &old_value,
   int index = ValueIndex(old_value) + 1;
   assert(index > 0);
   IncreaseSize(1);
-  int cur_size = GetSize();
+  int cur_size = GetSize(); // the cur_size is after increment
+  /** make room to store the pair */
   for (int i = cur_size - 1; i > index; i--) {
     array_[i].first = array_[i - 1].first;
     array_[i].second = array_[i - 1].second;
@@ -165,10 +166,10 @@ void B_PLUS_TREE_INTERNAL_PAGE_TYPE::MoveFirstToEndOf(BPlusTreeInternalPage *rec
   IncreaseSize(-1);
 
   // not memmove, just directly copy nodes
-  //    memmove(array_, array_ + 1, static_cast<size_t>(GetSize() * sizeof(MappingType)));
-  for (int i = 1; i < GetSize(); i++) {
-    array_[i - 1] = array_[i];
-  }
+    memmove(array_, array_ + 1, static_cast<size_t>(GetSize() * sizeof(MappingType)));
+//  for (int i = 1; i < GetSize(); i++) {
+//    array_[i-1] = array_[i];
+//  }
 
   recipient->CopyLastFrom(pair, buffer_pool_manager);
   // update child node's parent page id
@@ -207,10 +208,10 @@ void B_PLUS_TREE_INTERNAL_PAGE_TYPE::CopyFirstFrom(const MappingType &pair, int 
   // 将 first entry 设置为 pair
   assert(GetSize() + 1 < GetMaxSize());
 
-  //  memmove(array_ + 1, array_, GetSize()*sizeof (MappingType));
-  for (int i = GetSize(); i >= 1; i--) {
-    array_[i] = array_[i - 1];
-  }
+  memmove(array_ + 1, array_, GetSize()*sizeof (MappingType));
+//  for (int i = GetSize(); i >= 1; i--) {
+//    array_[i] = array_[i-1];
+//  }
 
   IncreaseSize(1);
   array_[0] = pair;

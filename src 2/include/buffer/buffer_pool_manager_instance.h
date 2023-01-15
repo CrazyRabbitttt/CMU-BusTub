@@ -168,9 +168,6 @@ class BufferPoolManagerInstance : public BufferPoolManager {
    */
   auto AllocatePage() -> page_id_t;
 
-  // DEBUG : check the pin & unpin count if equal
-  //  auto CheckAllUnPinedImp() -> bool override;
-
   /**
    * @brief Deallocate a page on disk. Caller should acquire the latch before calling this function.
    * @param page_id id of the page to deallocate

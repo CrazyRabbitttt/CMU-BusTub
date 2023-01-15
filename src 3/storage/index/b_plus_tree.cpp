@@ -47,7 +47,7 @@ auto BPLUSTREE_TYPE::GetValue(const KeyType &key, std::vector<ValueType> *result
   bool exists = leaf_node->LookUp(key, tmp_value, comparator_);
   (*result)[0] = tmp_value;
   buffer_pool_manager_->UnpinPage(leaf_node->GetPageId(), false);
-  //  assert(buffer_pool_manager_->Check());
+//  assert(buffer_pool_manager_->Check());
   return exists;
 }
 
@@ -136,7 +136,7 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value, Transact
     return true;
   }
   bool res = InsertIntoLeaf(key, value, comparator_);
-  //  assert(Check());
+//  assert(Check());
   return res;
 }
 
@@ -176,7 +176,7 @@ auto BPLUSTREE_TYPE::Split(N *cur_node) -> N * {
   if (cur_node->IsLeafPage()) {
     auto leaf_node = reinterpret_cast<LeafPage *>(cur_node);
     auto new_leaf_node = reinterpret_cast<LeafPage *>(new_page);
-    new_leaf_node->Init(new_page_id, leaf_node->GetParentPageId(), leaf_max_size_);  // set new page's parent node
+    new_leaf_node->Init(new_page_id, leaf_node->GetParentPageId(), leaf_max_size_); // set new page's parent node
     leaf_node->MoveHalfTo(new_leaf_node);
     /** 叶子节点更新双向链表*/
     new_leaf_node->SetNextPageId(leaf_node->GetNextPageId());
@@ -250,9 +250,7 @@ void BPLUSTREE_TYPE::InsertIntoParent(BPlusTreePage *old_node, const KeyType &ke
  */
 INDEX_TEMPLATE_ARGUMENTS
 void BPLUSTREE_TYPE::Remove(const KeyType &key, Transaction *transaction) {
-  if (IsEmpty()) {
-    return;
-  }
+  if (IsEmpty()) { return; }
   /** 1. find the leaf page*/
   Page *page = FindLeafPage(key, comparator_);
   auto *leaf_node = reinterpret_cast<LeafPage *>(page->GetData());
@@ -262,7 +260,7 @@ void BPLUSTREE_TYPE::Remove(const KeyType &key, Transaction *transaction) {
     MergeOrRedistribute(leaf_node);
   }
   buffer_pool_manager_->UnpinPage(leaf_node->GetPageId(), true);
-  //  assert(Check());
+//  assert(Check());
 }
 
 /*
@@ -292,7 +290,7 @@ auto BPLUSTREE_TYPE::MergeOrRedistribute(N *node) -> bool {
   }
   /** borrow entry from node2 */
   int node_in_parent_index = parent_node->ValueIndex(node->GetPageId());
-  Redistribute(node2, node, node_in_parent_index);  // unpin node, node2
+  Redistribute(node2, node, node_in_parent_index); // unpin node, node2
   buffer_pool_manager_->UnpinPage(parent_node->GetPageId(), false);
   return false;
 }
@@ -301,7 +299,7 @@ INDEX_TEMPLATE_ARGUMENTS
 template <typename N>
 auto BPLUSTREE_TYPE::IfCanMerge(N *node, N *neighbor_node) -> bool {
   if (node->IsLeafPage()) {
-    return node->GetSize() + neighbor_node->GetSize() < node->GetMaxSize();  // 不能够等于 maxsize 的
+    return node->GetSize() + neighbor_node->GetSize() < node->GetMaxSize(); // 不能够等于 maxsize 的
   }
   return node->GetSize() + neighbor_node->GetSize() <= node->GetMaxSize();
 }
@@ -388,6 +386,7 @@ auto BPLUSTREE_TYPE::FindSibling(N *node, N *&sibling) -> bool {
  */
 INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::AdjustRoot(BPlusTreePage *old_root_node) -> bool {
+
   /** 2. 如果说是 Leaf node 并且已经是空了的, 删除对应的 page */
   if (old_root_node->IsLeafPage()) {
     assert(old_root_node->GetSize() == 0);
@@ -477,7 +476,7 @@ auto BPLUSTREE_TYPE::End() -> INDEXITERATOR_TYPE {
 }
 
 INDEX_TEMPLATE_ARGUMENTS
-auto BPLUSTREE_TYPE::IsPageCorr(page_id_t pid, std::pair<KeyType, KeyType> &out) -> bool {
+auto BPLUSTREE_TYPE::isPageCorr(page_id_t pid, std::pair<KeyType, KeyType> &out) -> bool {
   if (IsEmpty()) {
     return true;
   }
@@ -506,9 +505,9 @@ auto BPLUSTREE_TYPE::IsPageCorr(page_id_t pid, std::pair<KeyType, KeyType> &out)
     std::pair<KeyType, KeyType> right;
     for (int i = 1; i < size; i++) {
       if (i == 1) {
-        res = res && IsPageCorr(page->ValueAt(0), left);
+        res = res && isPageCorr(page->ValueAt(0), left);
       }
-      res = res && IsPageCorr(page->ValueAt(i), right);
+      res = res && isPageCorr(page->ValueAt(i), right);
       res = res && (comparator_(page->KeyAt(i), left.second) > 0 && comparator_(page->KeyAt(i), right.first) <= 0);
       res = res && (i == 1 || comparator_(page->KeyAt(i - 1), page->KeyAt(i)) < 0);
       if (!res) {
@@ -523,7 +522,7 @@ auto BPLUSTREE_TYPE::IsPageCorr(page_id_t pid, std::pair<KeyType, KeyType> &out)
 }
 
 INDEX_TEMPLATE_ARGUMENTS
-auto BPLUSTREE_TYPE::IsBalanced(page_id_t pid) -> int {
+auto BPLUSTREE_TYPE::isBalanced(page_id_t pid) -> int {
   if (IsEmpty()) {
     return 1;
   }
@@ -536,7 +535,7 @@ auto BPLUSTREE_TYPE::IsBalanced(page_id_t pid) -> int {
     auto page = reinterpret_cast<B_PLUS_TREE_INTERNAL_PAGE *>(node);
     int last = -2;
     for (int i = 0; i < page->GetSize(); i++) {
-      int cur = IsBalanced(page->ValueAt(i));
+      int cur = isBalanced(page->ValueAt(i));
       if (cur >= 0 && last == -2) {
         last = cur;
         ret = last + 1;
@@ -553,9 +552,9 @@ auto BPLUSTREE_TYPE::IsBalanced(page_id_t pid) -> int {
 INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::Check() -> bool {
   std::pair<KeyType, KeyType> in;
-  bool is_page_in_order_and_size_corr = IsPageCorr(root_page_id_, in);
-  bool is_bal = (IsBalanced(root_page_id_) >= 0);
-  //  bool is_all_unpin = buffer_pool_manager_->Check();
+  bool is_page_in_order_and_size_corr = isPageCorr(root_page_id_, in);
+  bool is_bal = (isBalanced(root_page_id_) >= 0);
+  bool is_all_unpin = buffer_pool_manager_->Check();
   if (!is_page_in_order_and_size_corr) {
     std::cout << "problem in page order or page size" << std::endl;
     std::cout << "first: " << in.first << " second: " << in.second << std::endl;
@@ -563,10 +562,10 @@ auto BPLUSTREE_TYPE::Check() -> bool {
   if (!is_bal) {
     std::cout << "problem in balance" << std::endl;
   }
-  //  if (!is_all_unpin) {
-  //    std::cout << "problem in page unpin" << std::endl;
-  //  }
-  return is_page_in_order_and_size_corr && is_bal;
+  if (!is_all_unpin) {
+    std::cout << "problem in page unpin" << std::endl;
+  }
+  return is_page_in_order_and_size_corr && is_bal && is_all_unpin;
 }
 
 /**

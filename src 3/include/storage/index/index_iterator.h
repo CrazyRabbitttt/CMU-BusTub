@@ -32,9 +32,7 @@ class IndexIterator {
 
   auto operator++() -> IndexIterator &;
 
-  auto operator==(const IndexIterator &itr) const -> bool {
-    return cur_page_ == itr.cur_page_ && cur_index_ == itr.cur_index_;
-  }
+  auto operator==(const IndexIterator &itr) const -> bool { return cur_page_ == itr.cur_page_ && cur_index_ == itr.cur_index_; }
 
   auto operator!=(const IndexIterator &itr) const -> bool { return !(itr == *this); }
 

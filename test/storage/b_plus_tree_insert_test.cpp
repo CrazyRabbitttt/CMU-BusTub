@@ -241,7 +241,7 @@ TEST(BPlusTreeTests, InsertTest1) {
   auto header_page = bpm->NewPage(&page_id);
   (void)header_page;
 
-  int size = 800;
+  int size = 10000;
 
   std::vector<int64_t> keys(size);
 
@@ -323,7 +323,7 @@ TEST(BPlusTreeTests, InsertTest2) {
   auto header_page = bpm->NewPage(&page_id);
   (void)header_page;
 
-  int size = 1000;
+  int size = 10000;
 
   std::vector<int64_t> keys(size);
   // assign value to [begin, end) with the increasing value

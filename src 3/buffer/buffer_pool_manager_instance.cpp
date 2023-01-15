@@ -270,4 +270,16 @@ auto BufferPoolManagerInstance::DeletePgImp(page_id_t page_id) -> bool {
 
 auto BufferPoolManagerInstance::AllocatePage() -> page_id_t { return next_page_id_++; }
 
+auto BufferPoolManagerInstance::CheckAllUnpinedImp() -> bool {
+  bool res = true;
+  for (size_t i = 1; i < pool_size_; i++) {
+    if (pages_[i].pin_count_ != 0) {
+      res = false;
+      std::cout << "page " << pages_[i].page_id_ << " pin count:" << pages_[i].pin_count_ << std::endl;
+    }
+  }
+  return res;
+}
+
+
 }  // namespace bustub

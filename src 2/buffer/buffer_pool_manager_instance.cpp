@@ -181,7 +181,7 @@ auto BufferPoolManagerInstance::UnpinPgImp(page_id_t page_id, bool is_dirty) -> 
     return false; /** 如果说没有在 page_table 中找到数据 */
   }
   Page *res_page = pages_ + frame_index;
-  if (res_page->pin_count_ <= 0) {
+  if (res_page->pin_count_ == 0) {
     return false; /** 如果说 pin_count 为0*/
   }
   res_page->pin_count_--;
