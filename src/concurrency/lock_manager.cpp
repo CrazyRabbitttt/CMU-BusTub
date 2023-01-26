@@ -18,9 +18,13 @@
 
 namespace bustub {
 
-auto LockManager::LockTable(Transaction *txn, LockMode lock_mode, const table_oid_t &oid) -> bool { return true; }
+auto LockManager::LockTable(Transaction *txn, LockMode lock_mode, const table_oid_t &oid) -> bool {
+  return true;
+}
 
-auto LockManager::UnlockTable(Transaction *txn, const table_oid_t &oid) -> bool { return true; }
+auto LockManager::UnlockTable(Transaction *txn, const table_oid_t &oid) -> bool {
+  return true;
+}
 
 auto LockManager::LockRow(Transaction *txn, LockMode lock_mode, const table_oid_t &oid, const RID &rid) -> bool {
   return true;

@@ -16,8 +16,23 @@ namespace bustub {
 
 SeqScanExecutor::SeqScanExecutor(ExecutorContext *exec_ctx, const SeqScanPlanNode *plan) : AbstractExecutor(exec_ctx) {}
 
-void SeqScanExecutor::Init() { throw NotImplementedException("SeqScanExecutor is not implemented"); }
+// fine, I just don't call this virtual function in constructor
+void SeqScanExecutor::Init() {
+  // if we want to sequentially get the value of the table, need the iterator to get it
+  table_heap_ = exec_ctx_->GetCatalog()->GetTable(plan_->GetTableOid())->table_.get(); // get in unique_ptr is get the raw pointer
+  iter_ = table_heap_->Begin(exec_ctx_->GetTransaction());
+}
 
-auto SeqScanExecutor::Next(Tuple *tuple, RID *rid) -> bool { return false; }
+// @return `true` if a tuple was produced, `false` if there are no more tuples (means the iterator if the end of the table)
+auto SeqScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
+  // get the next tuple & rid
+  iter_++;
+  if (table_heap_->End() == iter_) {
+    return false;
+  }
+  *tuple = *iter_;
+  *rid = iter_->GetRid();
+  return true;
+}
 
 }  // namespace bustub

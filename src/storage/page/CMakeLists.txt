@@ -1,3 +1,5 @@
+
+# 将本目录：page 的文件生成为 library 来进行使用
 add_library(
     bustub_storage_page
     OBJECT

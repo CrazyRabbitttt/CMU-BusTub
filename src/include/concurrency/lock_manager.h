@@ -83,7 +83,7 @@ class LockManager {
 
   ~LockManager() {
     enable_cycle_detection_ = false;
-    cycle_detection_thread_->join();
+    cycle_detection_thread_->join(); // join the detection thread
     delete cycle_detection_thread_;
   }
 
@@ -138,7 +138,7 @@ class LockManager {
    *    belongs to. For instance, if an exclusive lock is attempted on a row, the transaction must hold either
    *    X, IX, or SIX on the table. If such a lock does not exist on the table, Lock() should set the TransactionState
    *    as ABORTED and throw a TransactionAbortException (TABLE_LOCK_NOT_PRESENT)
-   *
+   *lock_queue
    *
    * LOCK UPGRADE:
    *    Calling Lock() on a resource that is already locked should have the following behaviour:

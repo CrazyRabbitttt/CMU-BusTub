@@ -10,6 +10,7 @@
 //===----------------------------------------------------------------------===//
 #pragma once
 
+#include <atomic>
 #include <queue>
 #include <string>
 #include <utility>
@@ -38,6 +39,8 @@ INDEX_TEMPLATE_ARGUMENTS
 class BPlusTree {
   using InternalPage = BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator>;
   using LeafPage = BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>;
+
+  enum OpType { Read, Write, InSert, Delete};
 
  public:
   explicit BPlusTree(std::string name, BufferPoolManager *buffer_pool_manager, const KeyComparator &comparator,
@@ -76,8 +79,15 @@ class BPlusTree {
   // return the value associated with a given key
   auto GetValue(const KeyType &key, std::vector<ValueType> *result, Transaction *transaction = nullptr) -> bool;
 
+  void UnlatchAndUnpin(enum OpType op, Transaction *transaction) const;
+
   // Find the leaf page which contains the key
   auto FindLeafPage(const KeyType &key, const KeyComparator &comparator) -> Page *;
+
+  auto FindLeafPageRW(const KeyType &key, bool left_most, enum OpType op, Transaction *transaction) -> Page *;
+
+  template <typename N>
+  auto IsSafe(N *node, enum OpType op);
 
   auto FindLeftMostLeafPage() -> Page *;
 
@@ -134,6 +144,7 @@ class BPlusTree {
   KeyComparator comparator_;
   int leaf_max_size_;
   int internal_max_size_;
+  ReaderWriterLatch mutex_;
 };
 
 }  // namespace bustub

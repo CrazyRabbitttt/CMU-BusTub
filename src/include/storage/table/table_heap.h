@@ -99,7 +99,7 @@ class TableHeap {
    */
   auto GetTuple(const RID &rid, Tuple *tuple, Transaction *txn, bool acquire_read_lock = true) -> bool;
 
-  /** @return the begin iterator of this table */
+  /** @return the begin iterator of this table & the table consist of  */
   auto Begin(Transaction *txn) -> TableIterator;
 
   /** @return the end iterator of this table */
@@ -112,7 +112,7 @@ class TableHeap {
   BufferPoolManager *buffer_pool_manager_;
   LockManager *lock_manager_;
   LogManager *log_manager_;
-  page_id_t first_page_id_{};
+  page_id_t first_page_id_{}; // only maintains the first page id, if u want to fetch other page, just use bpm
 };
 
 }  // namespace bustub

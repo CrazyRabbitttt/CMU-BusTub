@@ -52,6 +52,26 @@ auto BPLUSTREE_TYPE::GetValue(const KeyType &key, std::vector<ValueType> *result
 }
 
 INDEX_TEMPLATE_ARGUMENTS
+void BPLUSTREE_TYPE::UnlatchAndUnpin(enum OpType op, Transaction *transaction) const {
+  if (transaction == nullptr) {
+    return;
+  }
+  // the pages that were latched during index operator
+  auto pages = transaction->GetPageSet();
+  for (auto page : *pages) {
+    page_id_t page_id = page->GetPageId();
+    if (op == OpType::Read) {
+      page->RUnlatch();
+      buffer_pool_manager_->UnpinPage(page_id, false);
+    } else {
+      page->WUnlatch();
+      buffer_pool_manager_->UnpinPage(page_id, true);
+    }
+  }
+  pages->clear();
+}
+
+INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::FindLeftMostLeafPage() -> Page * {
   if (IsEmpty()) {
     return nullptr;
@@ -77,11 +97,62 @@ auto BPLUSTREE_TYPE::FindLeftMostLeafPage() -> Page * {
 }
 
 INDEX_TEMPLATE_ARGUMENTS
+template <typename N>
+auto BPLUSTREE_TYPE::IsSafe(N *node, OpType op) {
+  // 1.Insert : cur_node's size + 1 will not split
+  if (op == OpType::InSert) {
+    if (node->IsLeafPage()) {
+      return node->GetSize() < node->GetMaxSize() - 1;
+    }
+    return node->GetSize() < node->GetMaxSize();
+  }
+
+  // 2.Remove[cause read function will not call this]
+  if (node->IsRootPage()) {
+    // leaf node 随便删除
+    if (node->IsLeafPage()) {
+      return true;
+    }
+    // 只要不是留着最后一个就行了
+    return node->GetSize() > 2;
+  }
+  return node->GetSize() > node->GetMinSize();
+}
+
+INDEX_TEMPLATE_ARGUMENTS
+auto BPLUSTREE_TYPE::FindLeafPageRW(const KeyType &key, bool left_most, OpType op, Transaction *transaction) -> Page * {
+  Page *page = buffer_pool_manager_->FetchPage(root_page_id_);
+  auto *node = reinterpret_cast<BPlusTreePage *>(page->GetData());
+  while (!node->IsLeafPage()) {
+    if (op == OpType::Read) {
+      // If lock this page then all the page can unlock & unpin?
+      page->RLatch();
+      UnlatchAndUnpin(op, transaction);
+    } else {
+      page->WLatch();
+      if (IsSafe(node, op)) {
+        UnlatchAndUnpin(op, transaction);
+      }
+    }
+    // the operator is safe, unlock all the parent nodes
+    transaction->AddIntoPageSet(page);
+    auto *internal_node = reinterpret_cast<InternalPage *>(node);
+    page_id_t next_page_id = left_most ? internal_node->ValueAt(0) : internal_node->LookUp(key, comparator_);
+    Page *next_page = buffer_pool_manager_->FetchPage(next_page_id);
+    auto *next_node = reinterpret_cast<BPlusTreePage *>(next_page);
+    page = next_page;
+    node = next_node;
+  }
+  return page;
+}
+
+INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::FindLeafPage(const KeyType &key, const KeyComparator &comparator) -> Page * {
   /** 1. if the tree is empty, return nullptr */
   if (IsEmpty()) {
     return nullptr;
   }
+
   /** 2. search from root page */
   Page *page = buffer_pool_manager_->FetchPage(root_page_id_);
   if (page == nullptr) {
@@ -434,11 +505,6 @@ auto BPLUSTREE_TYPE::Begin() -> INDEXITERATOR_TYPE {
   return INDEXITERATOR_TYPE(leaf_left_node, buffer_pool_manager_, 0);
 }
 
-/*
- * Input parameter is low key, find the leaf page that contains the input key
- * first, then construct index iterator
- * @return : index iterator
- */
 INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::Begin(const KeyType &key) -> INDEXITERATOR_TYPE {
   // 寻找以 Leaf node 中以 key 为开头的 index iterator ?
@@ -563,9 +629,6 @@ auto BPLUSTREE_TYPE::Check() -> bool {
   if (!is_bal) {
     std::cout << "problem in balance" << std::endl;
   }
-  //  if (!is_all_unpin) {
-  //    std::cout << "problem in page unpin" << std::endl;
-  //  }
   return is_page_in_order_and_size_corr && is_bal;
 }
 

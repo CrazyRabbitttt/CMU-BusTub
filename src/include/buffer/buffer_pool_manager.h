@@ -87,10 +87,6 @@ class BufferPoolManager {
   /** @return size of the buffer pool */
   virtual auto GetPoolSize() -> size_t = 0;
 
-  auto Check() -> bool {
-    return CheckAllUnpinedImp();
-  }
-
  protected:
   /**
    * Grading function. Do not modify!

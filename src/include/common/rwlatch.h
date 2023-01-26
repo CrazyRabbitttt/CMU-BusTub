@@ -37,7 +37,7 @@ class ReaderWriterLatch {
   /**
    * Acquire a read latch.
    */
-  void RLock() { mutex_.lock_shared(); }
+  void RLock() { mutex_.lock_shared(); }  // just lock shared
 
   /**
    * Release a read latch.

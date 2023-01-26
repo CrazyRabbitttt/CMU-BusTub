@@ -36,7 +36,7 @@ using column_oid_t = uint32_t;
 using index_oid_t = uint32_t;
 
 /**
- * The TableInfo class maintains metadata about a table.
+ * The TableInfo class maintains metadata about a table. metadata of the table.
  */
 struct TableInfo {
   /**
@@ -46,13 +46,14 @@ struct TableInfo {
    * @param table An owning pointer to the table heap
    * @param oid The unique OID for the table
    */
+   // Include : schema, name, table oid, table heap
   TableInfo(Schema schema, std::string name, std::unique_ptr<TableHeap> &&table, table_oid_t oid)
       : schema_{std::move(schema)}, name_{std::move(name)}, table_{std::move(table)}, oid_{oid} {}
-  /** The table schema */
+  /** The table schema : contains many columns*/
   Schema schema_;
   /** The table name */
   const std::string name_;
-  /** An owning pointer to the table heap */
+  /** An owning pointer to the table heap, means the physical storage : just a double-linked pages */
   std::unique_ptr<TableHeap> table_;
   /** The table OID */
   const table_oid_t oid_;
