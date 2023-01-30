@@ -40,7 +40,7 @@ class BPlusTree {
   using InternalPage = BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator>;
   using LeafPage = BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>;
 
-  enum OpType { Read, Write, InSert, Delete};
+  enum OpType { Read, Write, InSert, Delete };
 
  public:
   explicit BPlusTree(std::string name, BufferPoolManager *buffer_pool_manager, const KeyComparator &comparator,
@@ -58,52 +58,85 @@ class BPlusTree {
   void Remove(const KeyType &key, Transaction *transaction = nullptr);
 
   // 删除的时候 如果删除的是根结点的数据 进行更改
-  auto AdjustRoot(BPlusTreePage *old_root_node) -> bool;
+  auto AdjustRoot(BPlusTreePage *old_root_node, Transaction *transaction = nullptr) -> bool;
 
   template <typename N>
-  auto MergeOrRedistribute(N *node) -> bool;
+  auto MergeOrRedistribute(N *node, Transaction *transaction = nullptr) -> bool;
 
   template <typename N>
   auto IfCanMerge(N *node, N *neighbor_node) -> bool;
 
   template <typename N>
-  auto FindSibling(N *node, N *&sibling) -> bool;
+  auto FindSibling(N *node, N *&sibling, Transaction *transaction = nullptr) -> bool;
 
   template <typename N>
   void Redistribute(N *neighbor_node, N *node, int index);
 
   template <typename N>
-  auto Merge(N *&neighbor_node, N *&node, BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *&parent, int index)
-      -> bool;
+  auto Merge(N *&neighbor_node, N *&node, BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *&parent, int index,
+             Transaction *transaction = nullptr) -> bool;
 
   // return the value associated with a given key
   auto GetValue(const KeyType &key, std::vector<ValueType> *result, Transaction *transaction = nullptr) -> bool;
 
-  void UnlatchAndUnpin(enum OpType op, Transaction *transaction) const;
+  void UnlatchAndUnpin(enum OpType op, Transaction *transaction = nullptr);
+
+  void FreePagesInTrans(bool exclusive, Transaction *transaction, page_id_t cur = -1);
 
   // Find the leaf page which contains the key
   auto FindLeafPage(const KeyType &key, const KeyComparator &comparator) -> Page *;
 
-  auto FindLeafPageRW(const KeyType &key, bool left_most, enum OpType op, Transaction *transaction) -> Page *;
+  auto FetchPage(page_id_t page_id) -> BPlusTreePage *;
+
+  // fetch page & release father pages if safe
+  auto CrabbingFetchPage(page_id_t page_id, OpType op, page_id_t previous, Transaction *transaction) -> BPlusTreePage *;
+
+  auto FindLeafPageRW(const KeyType &key, bool left_most = false, enum OpType op = OpType::Read,
+                      Transaction *transaction = nullptr) -> B_PLUS_TREE_LEAF_PAGE_TYPE *;
 
   template <typename N>
-  auto IsSafe(N *node, enum OpType op);
+  auto IsSafe(N *node, enum OpType op) -> bool;
 
   auto FindLeftMostLeafPage() -> Page *;
 
   // Insert into leaf page
-  auto InsertIntoLeaf(const KeyType &key, const ValueType &value, const KeyComparator &comparator) -> bool;
+  auto InsertIntoLeaf(const KeyType &key, const ValueType &value, const KeyComparator &comparator,
+                      Transaction *transaction = nullptr) -> bool;
 
   template <typename N>
-  auto Split(N *node) -> N *;
+  auto Split(N *node, Transaction *transaction) -> N *;
 
-  void InsertIntoParent(BPlusTreePage *old_node, const KeyType &key, BPlusTreePage *new_node);
+  void InsertIntoParent(BPlusTreePage *old_node, const KeyType &key, BPlusTreePage *new_node,
+                        Transaction *transaction = nullptr);
 
   // Start a new node
   void StartNewNode(const KeyType &key, const ValueType &value);
 
   // return the page id of the root node
   auto GetRootPageId() -> page_id_t;
+
+  inline void Lock(bool exclusive, Page *page) {
+    if (exclusive) {
+      page->WLatch();
+    } else {
+      page->RLatch();
+    }
+  }
+
+  inline void Unlock(bool exclusive, Page *page) {
+    if (exclusive) {
+      page->WUnlatch();
+    } else {
+      page->RUnlatch();
+    }
+  }
+
+  // if we just have pageid & want to unpin it
+  inline void Unlock(bool exclusive, page_id_t pageId) {
+    Page *page = buffer_pool_manager_->FetchPage(pageId);
+    Unlock(exclusive, page);
+    buffer_pool_manager_->UnpinPage(pageId, exclusive);  // if the page is dirty
+  }
 
   // index iterator
   auto Begin() -> INDEXITERATOR_TYPE;
@@ -129,6 +162,27 @@ class BPlusTree {
 
   auto Check() -> bool;
 
+  void LockRootPageId(bool exclusive) {
+    if (exclusive) {
+      mutex_.WLock();
+    } else {
+      mutex_.RLock();
+    }
+    root_locked_cnt++;
+  }
+
+  void TryUnlockRootPageId(bool exclusive) {
+    // 如果已经是提前解开了(在 findleafpage 中)，就不用走这一步了
+    if (root_locked_cnt > 0) {
+      if (exclusive) {
+        mutex_.WUnlock();
+      } else {
+        mutex_.RUnlock();
+      }
+      root_locked_cnt--;
+    }
+  }
+
  private:
   void UpdateRootPageId(int insert_record = 0);
 
@@ -145,6 +199,8 @@ class BPlusTree {
   int leaf_max_size_;
   int internal_max_size_;
   ReaderWriterLatch mutex_;
+  // thread local variable to store the count of root locked
+  inline static thread_local int root_locked_cnt;
 };
 
 }  // namespace bustub

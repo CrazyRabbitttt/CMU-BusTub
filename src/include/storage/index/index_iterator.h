@@ -40,6 +40,12 @@ class IndexIterator {
 
  private:
   // add your own private member variables here
+  void UnlockAndUnpin() {
+    buffer_pool_manager_->FetchPage(cur_page_->GetPageId())->RUnlatch();
+    buffer_pool_manager_->UnpinPage(cur_page_->GetPageId(), false);
+    buffer_pool_manager_->UnpinPage(cur_page_->GetPageId(), false);
+  }
+
   B_PLUS_TREE_LEAF_PAGE_TYPE *cur_page_;
   BufferPoolManager *buffer_pool_manager_;
   int cur_index_;

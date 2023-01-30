@@ -184,7 +184,7 @@ auto BufferPoolManagerInstance::UnpinPgImp(page_id_t page_id, bool is_dirty) -> 
   if (res_page->pin_count_ <= 0) {
     return false; /** 如果说 pin_count 为0*/
   }
-  res_page->pin_count_--;
+  res_page->pin_count_--;  // 而不是 pin_count = 0
   if (res_page->pin_count_ == 0) {
     replacer_->SetEvictable(frame_index, true);
   }

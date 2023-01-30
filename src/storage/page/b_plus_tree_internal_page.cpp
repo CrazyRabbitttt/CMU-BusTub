@@ -134,8 +134,8 @@ void B_PLUS_TREE_INTERNAL_PAGE_TYPE::MoveAllTo(BPlusTreeInternalPage<KeyType, Va
   recipient->SetSize(start + GetSize());
   assert(recipient->GetSize() <= GetMaxSize());
   SetSize(0);
-  buffer_pool_manager->UnpinPage(GetPageId(), true);
-  buffer_pool_manager->UnpinPage(recipient->GetPageId(), true);
+  //  buffer_pool_manager->UnpinPage(GetPageId(), true);
+  //  buffer_pool_manager->UnpinPage(recipient->GetPageId(), true);
 }
 
 INDEX_TEMPLATE_ARGUMENTS
