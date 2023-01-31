@@ -275,6 +275,7 @@ auto BPLUSTREE_TYPE::InsertIntoLeaf(const KeyType &key, const ValueType &value, 
 INDEX_TEMPLATE_ARGUMENTS
 template <typename N>
 auto BPLUSTREE_TYPE::Split(N *cur_node, Transaction *transaction) -> N * {
+  // 创建一个新的 page， 用于存放新的 page, 将一半的数据转移到新的 node
   page_id_t new_page_id;
   Page *new_page = buffer_pool_manager_->NewPage(&new_page_id);
   assert(new_page != nullptr);
@@ -286,7 +287,7 @@ auto BPLUSTREE_TYPE::Split(N *cur_node, Transaction *transaction) -> N * {
     auto leaf_node = reinterpret_cast<LeafPage *>(cur_node);
     auto new_leaf_node = reinterpret_cast<LeafPage *>(new_page);
     new_leaf_node->Init(new_page_id, leaf_node->GetParentPageId(), leaf_max_size_);  // set new page's parent node
-    leaf_node->MoveHalfTo(new_leaf_node, buffer_pool_manager_);
+    leaf_node->MoveHalfTo(new_leaf_node);
     /** 叶子节点更新双向链表, 在上面的函数进行了实现*/
     new_node = reinterpret_cast<N *>(new_leaf_node);
   } else {

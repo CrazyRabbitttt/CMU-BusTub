@@ -59,7 +59,7 @@ class BPlusTreeLeafPage : public BPlusTreePage {
 
   void MoveAllTo(BPlusTreeLeafPage *recipient);
 
-  void MoveHalfTo(BPlusTreeLeafPage *recipient, BufferPoolManager *buffer_pool_manager);
+  void MoveHalfTo(BPlusTreeLeafPage *recipient);
 
   void MoveLastToFrontOf(BPlusTreeLeafPage *recipient, int parentIndex, BufferPoolManager *buffer_pool_manager);
 

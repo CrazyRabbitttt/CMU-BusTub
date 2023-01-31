@@ -132,8 +132,7 @@ void B_PLUS_TREE_LEAF_PAGE_TYPE::MoveAllTo(BPlusTreeLeafPage *recipient) {
 }
 
 INDEX_TEMPLATE_ARGUMENTS
-void B_PLUS_TREE_LEAF_PAGE_TYPE::MoveHalfTo(B_PLUS_TREE_LEAF_PAGE_TYPE *recipient,
-                                            BufferPoolManager *buffer_pool_manager) {
+void B_PLUS_TREE_LEAF_PAGE_TYPE::MoveHalfTo(B_PLUS_TREE_LEAF_PAGE_TYPE *recipient) {
   assert(recipient != nullptr);
   int total = GetMaxSize() + 1;
   assert(GetSize() == total);
@@ -162,29 +161,20 @@ void B_PLUS_TREE_LEAF_PAGE_TYPE::MoveFirstToEndOf(BPlusTreeLeafPage *recipient, 
                                                   BufferPoolManager *buffer_pool_manager) {
   MappingType pair = GetItem(0);
   IncreaseSize(-1);
-  memmove(array_, array_ + 1, static_cast<size_t>(GetSize() * sizeof(MappingType)));
+  //    memmove(array_, array_ + 1, static_cast<size_t>(GetSize()*sizeof(MappingType)));
+  /** 相较于拷贝数据, memmove 直接拷贝内存数据更快 */
+  for (int i = 1; i <= GetSize(); i++) {
+    array_[i - 1] = array_[i];
+  }
+  //  memmove(array_, array_ + 1, static_cast<size_t>(GetSize() * sizeof(MappingType)));
+  /** 将 pair 的数据插入到 recipient 的末尾 */
   recipient->CopyLastFrom(pair);
-  // update relavent key & value pair in its parent page.
+  /** 更新一下 parent_page 的内容 */
   Page *page = buffer_pool_manager->FetchPage(GetParentPageId());
-  auto *parent = reinterpret_cast<B_PLUS_TREE_INTERNAL_PAGE *>(page->GetData());
-  parent->SetKeyAt(parent->ValueIndex(GetPageId()), array_[0].first);
+  auto *parent_node = reinterpret_cast<B_PLUS_TREE_INTERNAL_PAGE *>(page->GetData());
+  parent_node->SetKeyAt(parent_node->ValueIndex(GetPageId()), array_[0].first);
+
   buffer_pool_manager->UnpinPage(GetParentPageId(), true);
-  //  MappingType pair = GetItem(0);
-  //  IncreaseSize(-1);
-  //  //    memmove(array_, array_ + 1, static_cast<size_t>(GetSize()*sizeof(MappingType)));
-  //  /** 相较于拷贝数据, memmove 直接拷贝内存数据更快 */
-  //  for (int i = 1; i <= GetSize(); i++) {
-  //    array_[i - 1] = array_[i];
-  //  }
-  //  //  memmove(array_, array_ + 1, static_cast<size_t>(GetSize() * sizeof(MappingType)));
-  //  /** 将 pair 的数据插入到 recipient 的末尾 */
-  //  recipient->CopyLastFrom(pair);
-  //  /** 更新一下 parent_page 的内容 */
-  //  Page *page = buffer_pool_manager->FetchPage(GetParentPageId());
-  //  auto *parent_node = reinterpret_cast<B_PLUS_TREE_INTERNAL_PAGE *>(page->GetData());
-  //  parent_node->SetKeyAt(parent_node->ValueIndex(GetPageId()), array_[0].first);
-  //
-  //  buffer_pool_manager->UnpinPage(GetParentPageId(), true);
 }
 
 INDEX_TEMPLATE_ARGUMENTS
@@ -199,27 +189,18 @@ INDEX_TEMPLATE_ARGUMENTS
 void B_PLUS_TREE_LEAF_PAGE_TYPE::CopyFirstFrom(const std::pair<KeyType, ValueType> &item, int parentIndex,
                                                BufferPoolManager *buffer_pool_manager) {
   assert(GetSize() + 1 < GetMaxSize());
-  memmove(array_ + 1, array_, GetSize() * sizeof(MappingType));
+  for (int i = GetSize(); i > 0; i--) {
+    array_[i] = array_[i - 1];
+  }
+  //  memmove(array_ + 1, array_, GetSize() * sizeof(MappingType));
   IncreaseSize(1);
   array_[0] = item;
 
+  /** first entry 更新过后需要同时更新 relevant page*/
   Page *page = buffer_pool_manager->FetchPage(GetParentPageId());
-  auto *parent = reinterpret_cast<B_PLUS_TREE_INTERNAL_PAGE *>(page->GetData());
-  parent->SetKeyAt(parentIndex, array_[0].first);
+  auto *parent_node = reinterpret_cast<B_PLUS_TREE_INTERNAL_PAGE *>(page->GetData());
+  parent_node->SetKeyAt(parentIndex, array_[0].first);
   buffer_pool_manager->UnpinPage(GetParentPageId(), true);
-  //  assert(GetSize() + 1 < GetMaxSize());
-  //  for (int i = GetSize(); i > 0; i--) {
-  //    array_[i] = array_[i - 1];
-  //  }
-  //  //  memmove(array_ + 1, array_, GetSize() * sizeof(MappingType));
-  //  IncreaseSize(1);
-  //  array_[0] = item;
-  //
-  //  /** first entry 更新过后需要同时更新 relevant page*/
-  //  Page *page = buffer_pool_manager->FetchPage(GetParentPageId());
-  //  auto *parent_node = reinterpret_cast<B_PLUS_TREE_INTERNAL_PAGE *>(page->GetData());
-  //  parent_node->SetKeyAt(parentIndex, array_[0].first);
-  //  buffer_pool_manager->UnpinPage(GetParentPageId(), true);
 }
 
 INDEX_TEMPLATE_ARGUMENTS

@@ -86,7 +86,7 @@ void B_PLUS_TREE_INTERNAL_PAGE_TYPE::PopulateNewRoot(const ValueType &old_value,
                                                      const ValueType &new_value) {
   /** 一个新的 internal-node 的首位是空的key */
   array_[0].second = old_value;
-  for (int i = 1; i < 2; i++) {
+  for (int i = 1; i <= 1; i++) {
     array_[i].first = new_key;
     array_[i].second = new_value;
   }
