@@ -213,12 +213,12 @@ auto BPLUSTREE_TYPE::FindLeafPage(const KeyType &key, const KeyComparator &compa
 
 INDEX_TEMPLATE_ARGUMENTS
 void BPLUSTREE_TYPE::StartNewNode(const KeyType &key, const ValueType &value) {
-  Page *root_page = buffer_pool_manager_->NewPage(&root_page_id_);
-  if (root_page == nullptr) {
-    throw "out of memory";
-  }
+  page_id_t new_page_id;
+  Page *root_page = buffer_pool_manager_->NewPage(&new_page_id);
+  assert(root_page != nullptr);
   auto *new_leaf_node = reinterpret_cast<LeafPage *>(root_page->GetData());
-  new_leaf_node->Init(root_page_id_, INVALID_PAGE_ID, leaf_max_size_);
+  new_leaf_node->Init(new_page_id, INVALID_PAGE_ID, leaf_max_size_);
+  root_page_id_ = new_page_id;
   UpdateRootPageId(1);
   new_leaf_node->Insert(key, value, comparator_);
   buffer_pool_manager_->UnpinPage(root_page_id_, true);
@@ -262,7 +262,7 @@ auto BPLUSTREE_TYPE::InsertIntoLeaf(const KeyType &key, const ValueType &value, 
   }
   leaf_node->Insert(key, value, comparator);
   /** leaf page 满了，进行 Split 的操作*/
-  if (leaf_node->GetSize() >= leaf_node->GetMaxSize()) {
+  if (leaf_node->GetSize() > leaf_node->GetMaxSize()) {
     LeafPage *new_leaf_node = Split(leaf_node, transaction);
     // unpin the new leaf node in the below function
     InsertIntoParent(leaf_node, new_leaf_node->KeyAt(0), new_leaf_node, transaction);
@@ -279,7 +279,7 @@ auto BPLUSTREE_TYPE::Split(N *cur_node, Transaction *transaction) -> N * {
   page_id_t new_page_id;
   Page *new_page = buffer_pool_manager_->NewPage(&new_page_id);
   assert(new_page != nullptr);
-  // TODO(shaoguixin): here not need to lock new page(但是老版本需要)
+  // TODO(shaoguixin): here not need to lock new page(老版本)
   new_page->WLatch();
   transaction->AddIntoPageSet(new_page);
   N *new_node;  // for return
@@ -288,9 +288,7 @@ auto BPLUSTREE_TYPE::Split(N *cur_node, Transaction *transaction) -> N * {
     auto new_leaf_node = reinterpret_cast<LeafPage *>(new_page);
     new_leaf_node->Init(new_page_id, leaf_node->GetParentPageId(), leaf_max_size_);  // set new page's parent node
     leaf_node->MoveHalfTo(new_leaf_node);
-    /** 叶子节点更新双向链表*/
-    new_leaf_node->SetNextPageId(leaf_node->GetNextPageId());
-    leaf_node->SetNextPageId(new_leaf_node->GetPageId());
+    /** 叶子节点更新双向链表, 在上面的函数进行了实现*/
     new_node = reinterpret_cast<N *>(new_leaf_node);
   } else {
     auto internal_node = reinterpret_cast<InternalPage *>(cur_node);
@@ -550,7 +548,7 @@ auto BPLUSTREE_TYPE::AdjustRoot(BPlusTreePage *old_root_node, Transaction *trans
 INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::Begin() -> INDEXITERATOR_TYPE {
   KeyType tmp_key;
-  auto *begin_node = FindLeafPageRW(tmp_key, true);
+  auto begin_node = FindLeafPageRW(tmp_key, true);
   TryUnlockRootPageId(false);
   return INDEXITERATOR_TYPE(begin_node, buffer_pool_manager_, 0);
 }

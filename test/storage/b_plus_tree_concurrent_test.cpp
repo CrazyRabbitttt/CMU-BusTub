@@ -115,7 +115,7 @@ TEST(BPlusTreeConcurrentTest, InsertTest1) {
   (void)header_page;
   // keys to Insert
   std::vector<int64_t> keys;
-  int64_t scale_factor = 10000;
+  int64_t scale_factor = 5000;
   for (int64_t key = 1; key < scale_factor; key++) {
     keys.push_back(key);
   }

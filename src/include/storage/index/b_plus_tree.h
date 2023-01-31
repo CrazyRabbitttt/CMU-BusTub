@@ -91,7 +91,7 @@ class BPlusTree {
   // fetch page & release father pages if safe
   auto CrabbingFetchPage(page_id_t page_id, OpType op, page_id_t previous, Transaction *transaction) -> BPlusTreePage *;
 
-  auto FindLeafPageRW(const KeyType &key, bool left_most = false, enum OpType op = OpType::Read,
+  auto FindLeafPageRW(const KeyType &key, bool left_most = false, OpType op = OpType::Read,
                       Transaction *transaction = nullptr) -> B_PLUS_TREE_LEAF_PAGE_TYPE *;
 
   template <typename N>

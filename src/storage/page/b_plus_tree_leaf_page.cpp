@@ -56,21 +56,18 @@ auto B_PLUS_TREE_LEAF_PAGE_TYPE::KeyAt(int index) const -> KeyType { return arra
 INDEX_TEMPLATE_ARGUMENTS
 auto B_PLUS_TREE_LEAF_PAGE_TYPE::KeyIndex(const KeyType &key, const KeyComparator &comparator) const -> int {
   assert(GetSize() >= 0);
-  int left = 0;
-  int right = GetSize();
-  if (left >= right) {
-    return GetSize();
-  }
-  /** 返回的是 第一个大于等于 key 的编号 */
-  while (left < right) {
-    int mid = (left + right) >> 1;
-    if (comparator(array_[mid].first, key) < 0) {
-      left = mid + 1;
+
+  page_id_t start = 0;
+  page_id_t end = GetSize() - 1;
+  while (start <= end) {
+    int mid = (end - start) / 1 + start;
+    if (comparator(array_[mid].first, key) >= 0) {
+      end = mid - 1;
     } else {
-      right = mid;
+      start = mid + 1;
     }
   }
-  return left;
+  return end + 1;
 }
 
 INDEX_TEMPLATE_ARGUMENTS
@@ -106,19 +103,17 @@ auto B_PLUS_TREE_LEAF_PAGE_TYPE::RemoveAndDeleteRecord(const KeyType &key, const
 INDEX_TEMPLATE_ARGUMENTS
 auto B_PLUS_TREE_LEAF_PAGE_TYPE::Insert(const KeyType &key, const ValueType &value, const KeyComparator &comparator)
     -> int {
-  assert(GetSize() < GetMaxSize());
-  if (GetSize() >= GetMaxSize()) {
-    throw "The leaf page is full, can not insert into this page";
-  }
   /** find the position of the leaf page*/
   int index = KeyIndex(key, comparator);
+  assert(index >= 0);
+  IncreaseSize(1);
+  int cur_size = GetSize();
   /** make room for the new pair */
-  for (int i = GetSize() - 1; i >= index; i--) {
-    array_[i + 1] = array_[i];
+  for (int i = cur_size - 1; i > index; i--) {
+    array_[i] = array_[i - 1];
   }
   array_[index] = MappingType{key, value};
-  IncreaseSize(1);
-  return GetSize();
+  return cur_size;
 }
 
 INDEX_TEMPLATE_ARGUMENTS
@@ -140,7 +135,7 @@ void B_PLUS_TREE_LEAF_PAGE_TYPE::MoveAllTo(BPlusTreeLeafPage *recipient) {
 INDEX_TEMPLATE_ARGUMENTS
 void B_PLUS_TREE_LEAF_PAGE_TYPE::MoveHalfTo(B_PLUS_TREE_LEAF_PAGE_TYPE *recipient) {
   assert(recipient != nullptr);
-  int total = GetMaxSize();
+  int total = GetMaxSize() + 1;
   assert(GetSize() == total);
   int copy_idx = total / 2;
   /** 7: 0 1 2 3 4 5 6 |  8: 0 1 2 3 4 5 6 7 */
@@ -150,7 +145,8 @@ void B_PLUS_TREE_LEAF_PAGE_TYPE::MoveHalfTo(B_PLUS_TREE_LEAF_PAGE_TYPE *recipien
     recipient->array_[i - copy_idx].second = array_[i].second;
   }
   /** Set pointer*/
-
+  recipient->SetNextPageId(GetNextPageId());
+  SetNextPageId(recipient->GetPageId());
   SetSize(copy_idx);
   recipient->SetSize(total - copy_idx);
 }
