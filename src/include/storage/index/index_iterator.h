@@ -22,33 +22,35 @@ namespace bustub {
 INDEX_TEMPLATE_ARGUMENTS
 class IndexIterator {
  public:
+  using LeafPage = BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>;
+
   // you may define your own constructor based on your member variables
-  IndexIterator(B_PLUS_TREE_LEAF_PAGE_TYPE *leaf_page, BufferPoolManager *buffer_pool_manager, int index = 0);
-  ~IndexIterator();  // NOLINT
+  IndexIterator(BufferPoolManager *bpm, Page *page, int index = 0);
+  IndexIterator() = default;
+  ~IndexIterator();
 
   auto IsEnd() -> bool;
+
+  void operator=(const IndexIterator &iter);
 
   auto operator*() -> const MappingType &;
 
   auto operator++() -> IndexIterator &;
 
-  auto operator==(const IndexIterator &itr) const -> bool {
-    return cur_page_ == itr.cur_page_ && cur_index_ == itr.cur_index_;
-  }
+  auto operator==(const IndexIterator &itr) const -> bool;
 
-  auto operator!=(const IndexIterator &itr) const -> bool { return !(itr == *this); }
+  auto operator!=(const IndexIterator &itr) const -> bool;
+
+  auto EmptyIter() -> bool {
+    return page_ == nullptr;
+  }
 
  private:
   // add your own private member variables here
-  void UnlockAndUnpin() {
-    buffer_pool_manager_->FetchPage(cur_page_->GetPageId())->RUnlatch();
-    buffer_pool_manager_->UnpinPage(cur_page_->GetPageId(), false);
-    buffer_pool_manager_->UnpinPage(cur_page_->GetPageId(), false);
-  }
-
-  B_PLUS_TREE_LEAF_PAGE_TYPE *cur_page_;
   BufferPoolManager *buffer_pool_manager_;
-  int cur_index_;
+  Page *page_;
+  LeafPage *leaf_ = nullptr;
+  int index_ = 0;
 };
 
 }  // namespace bustub

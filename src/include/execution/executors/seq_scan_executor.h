@@ -47,12 +47,13 @@ class SeqScanExecutor : public AbstractExecutor {
   /** @return The output schema for the sequential scan */
   auto GetOutputSchema() const -> const Schema & override { return plan_->OutputSchema(); }
 
+  auto GetValuesFromTuple(const Tuple *tuple, const Schema *schema) -> std::vector<Value>;
+
  private:
   /** The sequential scan plan node to be executed */
   const SeqScanPlanNode *plan_;
-
-//  TableInfo *table_info_{nullptr};
-//  TableHeap *table_heap_{nullptr};
-//  TableIterator iter_{};
+  TableHeap *table_heap_{nullptr};
+  /** iter 是必须的(the iterator of the table)*/
+  TableIterator iter_{};
 };
 }  // namespace bustub

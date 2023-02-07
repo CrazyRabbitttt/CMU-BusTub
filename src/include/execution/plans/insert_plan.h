@@ -31,8 +31,8 @@ class InsertPlanNode : public AbstractPlanNode {
  public:
   /**
    * Creates a new insert plan node for inserting values from a child plan.
-   * @param child the child plan to obtain values from
-   * @param table_oid the identifier of the table that should be inserted into
+   * @param child the child plan to obtain values from, 子 plan: 提供了 values
+   * @param table_oid the identifier of the table that should be inserted into，需要插入的 table 的 [t_id]
    */
   InsertPlanNode(SchemaRef output, AbstractPlanNodeRef child, table_oid_t table_oid)
       : AbstractPlanNode(std::move(output), {std::move(child)}), table_oid_(table_oid) {}

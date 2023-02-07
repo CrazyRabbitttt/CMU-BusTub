@@ -89,6 +89,7 @@ BustubInstance::BustubInstance() {
   } catch (NotImplementedException &e) {
     std::cerr << "BufferPoolManager is not implemented, only mock tables are supported." << std::endl;
     buffer_pool_manager_ = nullptr;
+    buffer_pool_manager_ = nullptr;
   }
 
   // Transaction (txn) related.

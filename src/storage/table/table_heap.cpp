@@ -47,7 +47,7 @@ auto TableHeap::InsertTuple(const Tuple &tuple, RID *rid, Transaction *txn) -> b
     txn->SetState(TransactionState::ABORTED);
     return false;
   }
-
+  // fetch the first page,
   cur_page->WLatch();
 
   // Insert into the first page with enough space. If no such page exists, create a new page and insert into that.

@@ -46,7 +46,7 @@ struct TableInfo {
    * @param table An owning pointer to the table heap
    * @param oid The unique OID for the table
    */
-   // Include : schema, name, table oid, table heap
+  // Include : schema, name, table oid, table heap
   TableInfo(Schema schema, std::string name, std::unique_ptr<TableHeap> &&table, table_oid_t oid)
       : schema_{std::move(schema)}, name_{std::move(name)}, table_{std::move(table)}, oid_{oid} {}
   /** The table schema : contains many columns*/
@@ -330,9 +330,21 @@ class Catalog {
       BUSTUB_ASSERT((index != indexes_.end()), "Broken Invariant");
       indexes.push_back(index->second.get());
     }
-
     return indexes;
   }
+
+  auto GetTableNameByOid(table_oid_t table_oid) -> std::string {
+    std::string res{};
+    for (auto &it : table_names_) {
+      if (it.second == table_oid) {
+        return it.first;
+      }
+    }
+    // 到达这里就意味着传入的 table_oid 是错误的
+    assert(false);
+    return res;
+  }
+
 
   auto GetTableNames() -> std::vector<std::string> {
     std::vector<std::string> result;

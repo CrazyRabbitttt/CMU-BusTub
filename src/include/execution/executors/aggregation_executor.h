@@ -53,9 +53,16 @@ class SimpleAggregationHashTable {
           break;
         case AggregationType::CountAggregate:
         case AggregationType::SumAggregate:
+          values.emplace_back(ValueFactory::GetIntegerValue(0));
+          break;
         case AggregationType::MinAggregate:
+          values.emplace_back(ValueFactory::GetIntegerValue(BUSTUB_INT32_MAX));
+          break;
         case AggregationType::MaxAggregate:
+          values.emplace_back(ValueFactory::GetIntegerValue(BUSTUB_INT32_MIN));
+          break;
           // Others starts at null.
+        default:
           values.emplace_back(ValueFactory::GetNullValueByType(TypeId::INTEGER));
           break;
       }
@@ -74,10 +81,31 @@ class SimpleAggregationHashTable {
     for (uint32_t i = 0; i < agg_exprs_.size(); i++) {
       switch (agg_types_[i]) {
         case AggregationType::CountStarAggregate:
+          result->aggregates_[i] = result->aggregates_[i].Add(ValueFactory::GetIntegerValue(1));
+          break;
         case AggregationType::CountAggregate:
+          if (input.aggregates_[i].IsNull()) {
+            break;
+          }
+          result->aggregates_[i] = result->aggregates_[i].Add(ValueFactory::GetIntegerValue(1));
+          break;
         case AggregationType::SumAggregate:
+          if (input.aggregates_[i].IsNull()) {
+            break ;
+          }
+          result->aggregates_[i] = result->aggregates_[i].Add(input.aggregates_[i]);
+          break;
         case AggregationType::MinAggregate:
+          if (input.aggregates_[i].IsNull()) {
+            break;
+          }
+          result->aggregates_[i] = result->aggregates_[i].Min(input.aggregates_[i]);
+          break;
         case AggregationType::MaxAggregate:
+          if (input.aggregates_[i].IsNull()) {
+            break;
+          }
+          result->aggregates_[i] = result->aggregates_[i].Max(input.aggregates_[i]);
           break;
       }
     }
@@ -159,6 +187,7 @@ class AggregationExecutor : public AbstractExecutor {
   AggregationExecutor(ExecutorContext *exec_ctx, const AggregationPlanNode *plan,
                       std::unique_ptr<AbstractExecutor> &&child);
 
+
   /** Initialize the aggregation */
   void Init() override;
 
@@ -196,13 +225,18 @@ class AggregationExecutor : public AbstractExecutor {
   }
 
  private:
+
+  std::atomic_bool not_empty_flag_{false};
+
+  std::atomic_bool finish_{false};
+
   /** The aggregation plan node */
   const AggregationPlanNode *plan_;
   /** The child executor that produces tuples over which the aggregation is computed */
   std::unique_ptr<AbstractExecutor> child_;
-  /** Simple aggregation hash table */
-  // TODO(Student): Uncomment SimpleAggregationHashTable aht_;
+  /** Simple aggregation hash table  哈希表【用于进行聚合计算的】*/
+  SimpleAggregationHashTable aht_;
   /** Simple aggregation hash table iterator */
-  // TODO(Student): Uncomment SimpleAggregationHashTable::Iterator aht_iterator_;
+  SimpleAggregationHashTable::Iterator aht_iterator_;
 };
 }  // namespace bustub
