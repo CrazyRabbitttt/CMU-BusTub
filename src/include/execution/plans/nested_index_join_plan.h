@@ -86,5 +86,7 @@ class NestedIndexJoinPlanNode : public AbstractPlanNode {
     return fmt::format("NestedIndexJoin {{ type={}, key_predicate={}, index={}, index_table={} }}", join_type_,
                        key_predicate_, index_name_, index_table_name_);
   }
+  Tuple CombineLeftJoinTuple(Tuple *left_tuple, Tuple *right_tuple, const Schema &left_schema,
+                             const Schema &right_schema, const Schema &final_schema);
 };
 }  // namespace bustub

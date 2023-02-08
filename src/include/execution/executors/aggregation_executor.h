@@ -163,6 +163,8 @@ class SimpleAggregationHashTable {
   /** @return Iterator to the end of the hash table */
   auto End() -> Iterator { return Iterator{ht_.cend()}; }
 
+  auto IsEmpty() -> bool { return ht_.empty(); }
+
  private:
   /** The hash table is just a map from aggregate keys to aggregate values */
   std::unordered_map<AggregateKey, AggregateValue> ht_{};

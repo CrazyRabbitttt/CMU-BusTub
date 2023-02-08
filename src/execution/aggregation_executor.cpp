@@ -33,17 +33,18 @@ void AggregationExecutor::Init() {
     not_empty_flag_ = true;
     aht_.InsertCombine(MakeAggregateKey(&receive_tuple), MakeAggregateValue(&receive_tuple));
   }
-  if (not_empty_flag_ == false && finish_ == false) {
-//    LOG_INFO("没有收到任何的子节点数据，空表");
-  }
   aht_iterator_ = aht_.Begin();
 }
 
-
 auto AggregationExecutor::Next(Tuple *tuple, RID *rid) -> bool {
-  if (!not_empty_flag_ && !finish_) {
+  // 需要 group_by 属性 但是具体的插入到 hash_table 中的为空 (group_by 不能为空)
+  if (!plan_->GetGroupBys().empty() && aht_.IsEmpty()) {
+    return false;
+  }
+
+  if (!not_empty_flag_ && !finish_) {  // 空表
     std::vector<Value> vec;
-    for (auto& it : plan_->GetAggregateTypes()) {
+    for (auto &it : plan_->GetAggregateTypes()) {
       if (it == AggregationType::CountStarAggregate) {
         vec.emplace_back(TypeId::INTEGER, 0);
       } else {
@@ -60,7 +61,7 @@ auto AggregationExecutor::Next(Tuple *tuple, RID *rid) -> bool {
   }
 
   std::vector<Value> res_value{aht_iterator_.Key().group_bys_};
-  for (auto& it : aht_iterator_.Val().aggregates_) {
+  for (auto &it : aht_iterator_.Val().aggregates_) {
     res_value.emplace_back(it);
   }
 
