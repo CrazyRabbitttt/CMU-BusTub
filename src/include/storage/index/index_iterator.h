@@ -41,9 +41,7 @@ class IndexIterator {
 
   auto operator!=(const IndexIterator &itr) const -> bool;
 
-  auto EmptyIter() -> bool {
-    return page_ == nullptr;
-  }
+  auto EmptyIter() -> bool { return page_ == nullptr; }
 
  private:
   // add your own private member variables here

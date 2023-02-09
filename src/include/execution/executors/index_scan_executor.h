@@ -52,6 +52,5 @@ class IndexScanExecutor : public AbstractExecutor {
   BPlusTreeIndexForOneIntegerColumn *tree_;
 
   IndexInfo *index_info_;
-
 };
 }  // namespace bustub

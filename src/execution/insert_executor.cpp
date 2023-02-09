@@ -57,7 +57,9 @@ auto InsertExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
     finish_ = true;
     return true;
   }
-  if (cnt != 0) { finish_ = true; }
+  if (cnt != 0) {
+    finish_ = true;
+  }
   return cnt != 0;
 }
 

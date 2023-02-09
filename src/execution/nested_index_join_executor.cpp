@@ -65,7 +65,7 @@ auto NestIndexJoinExecutor::Next(Tuple *tuple, RID *rid) -> bool {
   auto key_predicate = plan_->KeyPredicate();
   while (child_executor_->Next(&receive_tuple, &receive_rid)) {
     Value key_for_index = key_predicate->Evaluate(&receive_tuple, child_executor_->GetOutputSchema());
-//    std::cout << "The key from the out table to search in index:" << key_for_index.ToString() << std::endl;
+    //    std::cout << "The key from the out table to search in index:" << key_for_index.ToString() << std::endl;
     std::vector<RID> res_rids{};
     Schema tmp_schema{{Column{"probe key", key_for_index.GetTypeId()}}};
     Tuple tmp_tuple({key_for_index}, &tmp_schema);

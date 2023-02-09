@@ -170,6 +170,7 @@ auto Type::GetMaxValue(TypeId type_id) -> Value {
 
 auto Type::CompareEquals(const Value &left __attribute__((unused)), const Value &right __attribute__((unused))) const
     -> CmpBool {
+
   throw NotImplementedException("CompareEquals not implemented");
 }
 

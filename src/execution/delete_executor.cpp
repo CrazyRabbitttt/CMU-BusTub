@@ -60,7 +60,9 @@ auto DeleteExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
     return true;
   }
   // 只要出现一次 cnt != 0, 直接终止上述的特殊情况
-  if (cnt != 0) { finish_ = true; }
+  if (cnt != 0) {
+    finish_ = true;
+  }
   return cnt != 0;
 }
 

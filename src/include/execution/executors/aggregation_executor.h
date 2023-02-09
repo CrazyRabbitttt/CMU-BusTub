@@ -49,8 +49,6 @@ class SimpleAggregationHashTable {
       switch (agg_type) {
         case AggregationType::CountStarAggregate:
           // Count start starts at zero.
-          values.emplace_back(ValueFactory::GetIntegerValue(0));
-          break;
         case AggregationType::CountAggregate:
         case AggregationType::SumAggregate:
           values.emplace_back(ValueFactory::GetIntegerValue(0));
@@ -91,7 +89,7 @@ class SimpleAggregationHashTable {
           break;
         case AggregationType::SumAggregate:
           if (input.aggregates_[i].IsNull()) {
-            break ;
+            break;
           }
           result->aggregates_[i] = result->aggregates_[i].Add(input.aggregates_[i]);
           break;
@@ -189,7 +187,6 @@ class AggregationExecutor : public AbstractExecutor {
   AggregationExecutor(ExecutorContext *exec_ctx, const AggregationPlanNode *plan,
                       std::unique_ptr<AbstractExecutor> &&child);
 
-
   /** Initialize the aggregation */
   void Init() override;
 
@@ -227,7 +224,6 @@ class AggregationExecutor : public AbstractExecutor {
   }
 
  private:
-
   std::atomic_bool not_empty_flag_{false};
 
   std::atomic_bool finish_{false};

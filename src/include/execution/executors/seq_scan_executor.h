@@ -54,6 +54,6 @@ class SeqScanExecutor : public AbstractExecutor {
   const SeqScanPlanNode *plan_;
   TableHeap *table_heap_{nullptr};
   /** iter 是必须的(the iterator of the table)*/
-  TableIterator iter_{};
+  TableIterator iter_;
 };
 }  // namespace bustub

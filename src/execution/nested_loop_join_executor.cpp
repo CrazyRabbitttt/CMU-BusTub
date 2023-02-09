@@ -113,7 +113,7 @@ auto NestedLoopJoinExecutor::Next(Tuple *tuple, RID *rid) -> bool {
 
       Value match = plan_->Predicate().EvaluateJoin(&left_tuple, left_schema, &right_tuple, right_schema);
       if (match.GetAs<bool>()) {
-        if_matched_once = true;
+        // if_matched_once = true;
         last_left_tuple_ = left_tuple;  // 本次的结果已经是 match 了， 但是需要保存一下
         last_right_index_ = i;          // 保存上次的结果
 
