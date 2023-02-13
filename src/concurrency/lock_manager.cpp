@@ -106,25 +106,30 @@ auto LockManager::CheckCompatible(Transaction *txn, const LockMode &lock_mode, L
     }
     return true;
   }
+//
+//  if (txn->GetTransactionId() == 1) {
+//    auto& list = request_queue->request_queue_;
+//    std::cout << "The request_queue's size(): " << list.size() << std::endl;
+//  }
 
   // 检查与 queue 中其他的【已经上锁了的】lock mode 是否是兼容的
-  auto list = request_queue->request_queue_;
-  bool check = std::all_of(list.begin(), list.end(), [&](LockRequest *it) {
-    if (it->granted_) {
+  auto& list = request_queue->request_queue_;
+  for (auto& it : list) {
+    if (it->granted_ && it->txn_id_ != txn->GetTransactionId()) {
       LockMode exist_mode = it->lock_mode_;
       if (!CheckTwoModeCompatible(exist_mode, lock_mode)) {
         return false;
       }
     }
-    return true;
-  });
-  return check;
+  }
+  return true;
 }
 
 auto LockManager::GrantLock(Transaction *txn, const LockMode &lock_mode, LockRequestQueue *request_queue,
                             bool it_will_upgrade_lock) -> bool {
   // 加锁的 mode 兼容性检查
   if (!CheckCompatible(txn, lock_mode, request_queue)) {
+//    LOG_DEBUG("txn id:%d, check grant lock, 兼容性不行", txn->GetTransactionId());
     return false;
   }
 
@@ -135,6 +140,7 @@ auto LockManager::GrantLock(Transaction *txn, const LockMode &lock_mode, LockReq
     if (it_will_upgrade_lock) {
       return true;
     }
+//    LOG_DEBUG("check grant lock failed, 别的事务在升级");
     // 别的事务正在升级锁，Return false
     return false;
   }
@@ -154,6 +160,7 @@ auto LockManager::GrantLock(Transaction *txn, const LockMode &lock_mode, LockReq
       if (CheckCompatible(txn, lock_mode, request_queue, &mode_set)) {
         return true;
       }
+//      LOG_DEBUG("check grant lock, 优先级不是最高的（不是最前面的等待的）");
       return false;
     }
     // 根本不是本事务，更新一下数据
@@ -280,7 +287,7 @@ auto LockManager::LockTable(Transaction *txn, LockMode lock_mode, const table_oi
     // 创建一个新的 queue
     auto new_request_queue = std::make_shared<LockRequestQueue>();
     //      LockRequest request{txn_id, lock_mode, oid};
-    std::list<LockRequest *> request_list{};
+    std::list<std::shared_ptr<LockRequest>> request_list{};
     new_request_queue->request_queue_ = request_list;
 
     table_lock_map_[oid] = new_request_queue;
@@ -290,6 +297,7 @@ auto LockManager::LockTable(Transaction *txn, LockMode lock_mode, const table_oi
   // TODO(sgx):Lock queue
   request_queue = table_lock_map_[oid];
   std::unique_lock<std::mutex> queue_lock(request_queue->latch_);
+//  LOG_DEBUG("txn id:%d lock the table queue:%d", txn_id, oid);
   table_lock_map_latch_.unlock();
   // =======================================================================================
   // UNLOCK THE TABLE MAP LATCH
@@ -300,11 +308,9 @@ auto LockManager::LockTable(Transaction *txn, LockMode lock_mode, const table_oi
 
   assert(request_queue.get() != nullptr);
   // Check if this request is a lock upgrade
-  auto queue = request_queue->request_queue_;
+  auto& queue = request_queue->request_queue_;
   if (!queue.empty()) {
     // 查看是否是有与当前事务相同的请求
-
-
     for (auto& it : queue) {
       if (it->txn_id_ == txn_id) {
         assert(it->granted_ == true);
@@ -312,17 +318,6 @@ auto LockManager::LockTable(Transaction *txn, LockMode lock_mode, const table_oi
         if_can_upgrade_lock = true;
         break;
       }
-    }
-
-    
-    auto if_has_same_txn_id =
-        std::find_if(queue.begin(), queue.end(), [&](auto *request) { return request->txn_id_ = txn_id; });
-    if (if_has_same_txn_id != queue.end()) {
-      // 当前的事务已经从本资源上面取得了一把锁了, grant 一定为 true
-      // 如果没有通过那么就不可能走到这一步 txn 肯定是阻塞的状态
-      assert((*if_has_same_txn_id)->granted_ == true);
-      exist_request = *if_has_same_txn_id;
-      if_can_upgrade_lock = true;
     }
   }
   // 3.尝试对锁进行升级, 判断 mode 是否与之前的一样
@@ -351,38 +346,47 @@ auto LockManager::LockTable(Transaction *txn, LockMode lock_mode, const table_oi
 
     // 2. 能够对锁进行升级了 释放当前已经持有的锁，在 queue 中标记正在尝试升级
     exist_request->granted_ = false;  // 解除同 txn 之前的锁，进行锁升级
+    // 直接释放之前的请求
+    auto& list = request_queue->request_queue_;
+    auto index = std::find_if(list.begin(), list.end(),
+                              [&](auto it) { return it->txn_id_ == exist_request->txn_id_ && it->oid_ == oid; });
+    assert(index != list.end());
+    list.remove(*index);
     request_queue->upgrading_ = 1;    // 标记为尝试升级锁
 
-    auto *new_upgrade_request = new LockRequest(txn_id, lock_mode, oid);
+    auto new_upgrade_request = std::make_shared<LockRequest>(txn_id, lock_mode, oid);
+    //    auto *new_upgrade_request = new LockRequest(txn_id, lock_mode, oid);
     request_queue->request_queue_.emplace_back(new_upgrade_request);
     // TODO(shaoguixin): unlock while upgrade condition
     // 3. 等待直到新锁被授予
     {
+//      LOG_INFO("txn id:%d, 正在检查是否能够授予锁[upgrade]，Table:%d", txn_id, oid);
       request_queue->cv_.wait(queue_lock, [&]() { return GrantLock(txn, lock_mode, request_queue.get(), true); });
+//      LOG_INFO("txn id : %d, Lock table %d : cv 等到了锁的授予, upgrade txn fetch the lock", txn_id, oid);
       new_upgrade_request->granted_ = true;
       request_queue->upgrading_ = INVALID_TXN_ID;  // 升级结束
       // book keeping, 将加锁记录更新到 transaction 中
+      BookKeepForTransUnTable(txn, exist_mode, oid);
       BookKeepForTransTable(txn, lock_mode, oid);
-      delete new_upgrade_request;  // 将申请的数据进行清除掉
-      new_upgrade_request = nullptr;
       return true;
     }
   }
 
   // 4. 平凡的锁申请, 加入到申请队列中
-  auto *new_lock_request = new LockRequest(txn_id, lock_mode, oid);
+  auto new_lock_request = std::make_shared<LockRequest>(txn_id, lock_mode, oid);
+  //  auto *new_lock_request = new LockRequest(txn_id, lock_mode, oid);
   request_queue->request_queue_.emplace_back(new_lock_request);
   // TODO(shaoguixin): unlock while normal condition
   {
     // 5. 尝试获得锁
     // 条件变量等待别的事务释放掉锁
+//    LOG_INFO("txn id:%d, 正在检查是否能够授予锁[normal]，Table:%d", txn_id, oid);
     request_queue->cv_.wait(queue_lock, [&]() { return GrantLock(txn, lock_mode, request_queue.get(), false); });
+//    LOG_INFO("txn id : %d, Lock table %d : cv 等到了锁的授予, normal txn fetch the lock", txn_id, oid);
     // 等待成功，下面进行普通的锁的授予
     new_lock_request->granted_ = true;
     // book keeping for transaction
     BookKeepForTransTable(txn, lock_mode, oid);
-    delete new_lock_request;  // 将申请的数据进行清除掉
-    new_lock_request = nullptr;
     return true;
   }
 }
@@ -415,6 +419,7 @@ auto LockManager::UnlockTable(Transaction *txn, const table_oid_t &oid) -> bool 
         }
         found_the_lock = true;
         lock_mode = it->lock_mode_;
+//        LOG_INFO("txn id: %d, Unlock table：%d, found the corresponding request, lock mode:%d", txn_id, oid, lock_mode);
         // 找到了对应的 锁了, 根据隔离级别和锁类型修改 txn phase
         UpdateTxnPhaseWhileUnlock(txn, lock_mode);
         break;
@@ -425,16 +430,20 @@ auto LockManager::UnlockTable(Transaction *txn, const table_oid_t &oid) -> bool 
       return false;
     }
     // 将对应的 request 进行删除
-    auto list = request_queue->request_queue_;
+    auto& list = request_queue->request_queue_;
+//    int size = list.size();
+//    std::cout << "原来的个数" << size << "\n";
     auto index = std::find_if(list.begin(), list.end(),
-                              [&](LockRequest *it) { return it->txn_id_ == txn_id && it->oid_ == oid; });
+                              [&](auto it) { return it->txn_id_ == txn_id && it->oid_ == oid; });
     assert(index != list.end());
     list.remove(*index);
+//    std::cout << "移除之后的个数 " << list.size() << "\n";
 
     // BookKeeping
     BookKeepForTransUnTable(txn, lock_mode, oid);
   }
 
+//  LOG_INFO("txn id:%d, Unlock table %d cv notify the lock", txn_id, oid);
   request_queue->cv_.notify_all();  // notify 不需要获得锁
 
   return true;
@@ -471,7 +480,7 @@ auto LockManager::LockRow(Transaction *txn, LockMode lock_mode, const table_oid_
   {
     std::lock_guard<std::mutex> table_map_lock(table_lock_map_latch_);
     if (!static_cast<bool>(table_lock_map_.count(oid))) {
-      LOG_INFO("want to lock row, but don't held the table lock");
+//      LOG_INFO("want to lock row, but don't held the table lock");
       return false;
     }
     table_request_queue = table_lock_map_[oid];
@@ -483,7 +492,7 @@ auto LockManager::LockRow(Transaction *txn, LockMode lock_mode, const table_oid_
       }
     }
     if (!has_table_lock) {
-      LOG_INFO("want to lock row, but don't held the table lock");
+//      LOG_INFO("want to lock row, but don't held the table lock");
       return false;
     }
   }
@@ -499,7 +508,7 @@ auto LockManager::LockRow(Transaction *txn, LockMode lock_mode, const table_oid_
     // 创建一个新的 queue
     auto new_request_queue = std::make_shared<LockRequestQueue>();
     //      LockRequest request{txn_id, lock_mode, oid};
-    std::list<LockRequest *> request_list{};
+    std::list<std::shared_ptr<LockRequest>> request_list{};
     new_request_queue->request_queue_ = request_list;
 
     row_lock_map_[rid] = new_request_queue;
@@ -518,17 +527,16 @@ auto LockManager::LockRow(Transaction *txn, LockMode lock_mode, const table_oid_
   LockRequest *exist_request{nullptr};  // 记录本事务之前已经授权的 Request
 
   // Check if this request is a lock upgrade
-  auto queue = request_queue->request_queue_;
+  auto& queue = request_queue->request_queue_;
   // 查看是否是有与当前事务相同的请求
   if (!queue.empty()) {
-    auto if_has_same_txn_id =
-        std::find_if(queue.begin(), queue.end(), [&](LockRequest *request) { return request->txn_id_ = txn_id; });
-    if (if_has_same_txn_id != queue.end()) {
-      // 当前的事务已经从本资源上面取得了一把锁了, grant 一定为 true
-      // 如果没有通过那么就不可能走到这一步 txn 肯定是阻塞的状态
-      assert((*if_has_same_txn_id)->granted_ == true);
-      exist_request = *if_has_same_txn_id;
-      if_can_upgrade_lock = true;
+    for (auto& it : queue) {
+      if (it->txn_id_ == txn_id) {
+        assert(it->granted_ == true);
+        exist_request = it.get();
+        if_can_upgrade_lock = true;
+        break;
+      }
     }
   }
 
@@ -566,6 +574,7 @@ auto LockManager::LockRow(Transaction *txn, LockMode lock_mode, const table_oid_
     // 3. 等待直到新锁被授予
     {
       request_queue->cv_.wait(queue_lock, [&]() { return GrantLock(txn, lock_mode, request_queue.get(), true); });
+//      LOG_INFO("Lock row cv wait for the lock, upgrade txn fetch the lock");
       new_upgrade_request->granted_ = true;
       request_queue->upgrading_ = INVALID_TXN_ID;  // 升级结束
       // book keeping, 将加锁记录更新到 transaction 中
@@ -585,6 +594,7 @@ auto LockManager::LockRow(Transaction *txn, LockMode lock_mode, const table_oid_
     // 条件变量等待别的事务释放掉锁
     request_queue->cv_.wait(queue_lock, [&]() { return GrantLock(txn, lock_mode, request_queue.get(), false); });
     // 等待成功，下面进行普通的锁的授予
+//    LOG_INFO("Lock row cv wait for the lock, normal txn fetch the lock");
     new_lock_request->granted_ = true;
     // book keeping for transaction
     BookKeepForTransRow(txn, lock_mode, oid, rid);
@@ -625,8 +635,8 @@ auto LockManager::UnlockRow(Transaction *txn, const table_oid_t &oid, const RID 
       return false;
     }
     // 将对应的 request 进行删除
-    auto list = request_queue->request_queue_;
-    auto index = std::find_if(list.begin(), list.end(), [&](LockRequest *it) {
+    auto& list = request_queue->request_queue_;
+    auto index = std::find_if(list.begin(), list.end(), [&](auto it) {
       return it->txn_id_ == txn_id && it->oid_ == oid && it->rid_ == rid;
     });
     assert(index != list.end());
@@ -635,6 +645,7 @@ auto LockManager::UnlockRow(Transaction *txn, const table_oid_t &oid, const RID 
     // BookKeeping
     BookKeepForTransUnRow(txn, lock_mode, oid, rid);
   }
+//  LOG_INFO("Unlock row notify the cv");
   request_queue->cv_.notify_all();  // notify 不需要获得锁
   return true;
 }

@@ -61,6 +61,7 @@ void TransactionManager::Commit(Transaction *txn) {
 
   // Release all the locks.
   ReleaseLocks(txn);
+  txn->SetState(TransactionState::COMMITTED);
   // Release the global transaction latch.
   global_txn_latch_.RUnlock();
 }
