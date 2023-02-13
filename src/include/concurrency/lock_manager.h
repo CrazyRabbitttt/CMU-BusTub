@@ -64,7 +64,8 @@ class LockManager {
   class LockRequestQueue {
    public:
     /** List of lock requests for the same resource (table or row) */
-    std::list<LockRequest *> request_queue_;
+//    std::list<LockRequest *> request_queue_;
+    std::list<std::shared_ptr<LockRequest>> request_queue_;
     /** For notifying blocked transactions on this rid */
     std::condition_variable cv_;
     /** txn_id of an upgrading transaction (if any) */
@@ -78,12 +79,12 @@ class LockManager {
    */
   LockManager() {
     enable_cycle_detection_ = true;
-    cycle_detection_thread_ = new std::thread(&LockManager::RunCycleDetection, this);
+    cycle_detection_thread_ = new std::thread(&LockManager::RunCycleDetection, this);  // 后台线程进行死锁检测
   }
 
   ~LockManager() {
     enable_cycle_detection_ = false;
-    cycle_detection_thread_->join(); // join the detection thread
+    cycle_detection_thread_->join();  // join the detection thread
     delete cycle_detection_thread_;
   }
 
@@ -93,17 +94,20 @@ class LockManager {
    * GENERAL BEHAVIOUR:
    *    Both LockTable() and LockRow() are blocking methods; they should wait till the lock is granted and then return.
    *    If the transaction was aborted in the meantime, do not grant the lock and return false.
-   *
+   *    如果说 transaction 发生了 abort， 不能够进行授权 lock，并且直接 Return false
    *
    * MULTIPLE TRANSACTIONS:
    *    LockManager should maintain a queue for each resource; locks should be granted to transactions in a FIFO manner.
    *    If there are multiple compatible lock requests, all should be granted at the same time
    *    as long as FIFO is honoured.
+   *    多个兼容的 lock 请求同时进行加锁？还是按照 FIFO
+   *
    *
    * SUPPORTED LOCK MODES:
    *    Table locking should support all lock modes.
    *    Row locking should not support Intention locks. Attempting this should set the TransactionState as
    *    ABORTED and throw a TransactionAbortException (ATTEMPTED_INTENTION_LOCK_ON_ROW)
+   *    行锁不应该支持 意向锁， 直接 抛出异常
    *
    *
    * ISOLATION LEVEL:
@@ -113,6 +117,7 @@ class LockManager {
    *
    *    For instance S/IS/SIX locks are not required under READ_UNCOMMITTED, and any such attempt should set the
    *    TransactionState as ABORTED and throw a TransactionAbortException (LOCK_SHARED_ON_READ_UNCOMMITTED).
+   *    S/IS/SIX 锁在 【读未提交】下是不能够接受的，抛出异常
    *
    *    Similarly, X/IX locks on rows are not allowed if the the Transaction State is SHRINKING, and any such attempt
    *    should set the TransactionState as ABORTED and throw a TransactionAbortException (LOCK_ON_SHRINKING).
@@ -296,6 +301,28 @@ class LockManager {
    * Runs cycle detection in the background.
    */
   auto RunCycleDetection() -> void;
+
+  auto CheckTransStateAndLockMode(Transaction *txn, const LockMode &lock_mode) -> bool;
+
+  auto CheckTwoModeCompatible(const LockMode &exist_mode, const LockMode &lock_mode) -> bool;
+
+  auto CheckCompatible(Transaction *txn, const LockMode &lock_mode, LockRequestQueue *request_queue,
+                       std::unordered_set<LockMode> *mode_set = nullptr);
+
+  auto GrantLock(Transaction *txn, const LockMode &lock_mode, LockRequestQueue *request_queue,
+                 bool it_will_upgrade_lock) -> bool;
+
+  void BookKeepForTransTable(Transaction *txn, const LockMode &lock_mode, const table_oid_t &oid);
+
+  void BookKeepForTransUnTable(Transaction *txn, const LockMode &lock_mode, const table_oid_t &oid);
+
+  void BookKeepForTransRow(Transaction *txn, const LockMode &lock_mode, const table_oid_t &oid, const RID &rid);
+
+  void BookKeepForTransUnRow(Transaction *txn, const LockMode &lock_mode, const table_oid_t& oid, const RID &rid);
+
+  auto CheckIfCanUpgrade(Transaction *txn, const LockMode &exist_mode, const LockMode &lock_mode) -> bool;
+
+  void UpdateTxnPhaseWhileUnlock(Transaction *txn, const LockMode &lock_mode);
 
  private:
   /** Fall 2022 */
