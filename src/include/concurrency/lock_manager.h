@@ -139,6 +139,7 @@ class LockManager {
    *
    *
    * MULTILEVEL LOCKING:
+   *    // 如果给 row 加上写锁，那么必须要持有 table 的带 X 属性的锁
    *    While locking rows, Lock() should ensure that the transaction has an appropriate lock on the table which the row
    *    belongs to. For instance, if an exclusive lock is attempted on a row, the transaction must hold either
    *    X, IX, or SIX on the table. If such a lock does not exist on the table, Lock() should set the TransactionState
@@ -323,6 +324,8 @@ class LockManager {
   auto CheckIfCanUpgrade(Transaction *txn, const LockMode &exist_mode, const LockMode &lock_mode) -> bool;
 
   void UpdateTxnPhaseWhileUnlock(Transaction *txn, const LockMode &lock_mode);
+
+  auto CheckAbort(Transaction* txn) -> bool;
 
  private:
   /** Fall 2022 */

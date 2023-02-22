@@ -111,7 +111,8 @@ enum class AbortReason {
   ATTEMPTED_INTENTION_LOCK_ON_ROW,
   TABLE_UNLOCKED_BEFORE_UNLOCKING_ROWS,
   INCOMPATIBLE_UPGRADE,
-  ATTEMPTED_UNLOCK_BUT_NO_LOCK_HELD
+  ATTEMPTED_UNLOCK_BUT_NO_LOCK_HELD,
+  GrantLatchButAborted
 };
 
 /**
@@ -147,6 +148,8 @@ class TransactionAbortException : public std::exception {
         return "Transaction " + std::to_string(txn_id_) + " aborted because attempted lock upgrade is incompatible\n";
       case AbortReason::ATTEMPTED_UNLOCK_BUT_NO_LOCK_HELD:
         return "Transaction " + std::to_string(txn_id_) + " aborted because attempted to unlock but no lock held \n";
+      case AbortReason::GrantLatchButAborted:
+        return "Transaction " + std::to_string(txn_id_) + " aborted because attempted to grant_lock but txn was aborted \n";
     }
     // Todo: Should fail with unreachable.
     return "";

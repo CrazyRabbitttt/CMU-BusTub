@@ -92,7 +92,7 @@ class TransactionManager {
     /** Drop all row locks */
     txn->LockTxn();
     std::unordered_map<table_oid_t, std::unordered_set<RID>> row_lock_set;
-    for (const auto &s_row_lock_set : *txn->GetSharedRowLockSet()) {
+    for (const auto &s_row_lock_set : *txn->GetSharedRowLockSet()) {    // map(table <==> [rid set])
       for (auto rid : s_row_lock_set.second) {
         row_lock_set[s_row_lock_set.first].emplace(rid);
       }
@@ -122,14 +122,17 @@ class TransactionManager {
     }
     txn->UnlockTxn();
 
+    // now we get the set of the row locks & table locks
     for (const auto &locked_table_row_set : row_lock_set) {
       table_oid_t oid = locked_table_row_set.first;
       for (auto rid : locked_table_row_set.second) {
+        // unlock all of the row locks
         lock_manager_->UnlockRow(txn, oid, rid);
       }
     }
 
     for (auto oid : table_lock_set) {
+      // unlock all of the table locks
       lock_manager_->UnlockTable(txn, oid);
     }
   }

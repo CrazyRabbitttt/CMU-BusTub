@@ -32,6 +32,7 @@ auto TransactionManager::Begin(Transaction *txn, IsolationLevel isolation_level)
     txn = new Transaction(next_txn_id_++, isolation_level);
   }
 
+  txn->SetState(TransactionState::GROWING);
   if (enable_logging) {
     LogRecord record = LogRecord(txn->GetTransactionId(), txn->GetPrevLSN(), LogRecordType::BEGIN);
     lsn_t lsn = log_manager_->AppendLogRecord(&record);
@@ -61,7 +62,6 @@ void TransactionManager::Commit(Transaction *txn) {
 
   // Release all the locks.
   ReleaseLocks(txn);
-  txn->SetState(TransactionState::COMMITTED);
   // Release the global transaction latch.
   global_txn_latch_.RUnlock();
 }
