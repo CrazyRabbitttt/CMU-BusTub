@@ -127,7 +127,10 @@ auto LockManager::CheckCompatible(Transaction *txn, const LockMode &lock_mode, L
 }
 
 auto LockManager::GrantLock(Transaction *txn, const LockMode &lock_mode, LockRequestQueue *request_queue,
-                            bool it_will_upgrade_lock) -> bool {
+                            bool it_will_upgrade_lock, LockRequest *request) -> bool {
+  if (request->granted_) {
+    return true;
+  }
   // 加锁的 mode 兼容性检查
   if (!CheckCompatible(txn, lock_mode, request_queue)) {
     //    LOG_DEBUG("txn id:%d, check grant lock, 兼容性不行", txn->GetTransactionId());
@@ -137,15 +140,13 @@ auto LockManager::GrantLock(Transaction *txn, const LockMode &lock_mode, LockReq
   // 目前的兼容性是通过了的，需要判断优先级是不是最高的 才能给你加锁
   // 有锁升级的情况
   if (request_queue->upgrading_ != INVALID_TXN_ID) {
-    // 本次的请求就是锁升级请求，优先级最高
-    if (it_will_upgrade_lock) {
-      return true;
-    }
-    return false;
+    // 本次的请求就是锁升级请求，优先级最高, 如果不是的话那就是别的事务正在加锁，不能够授予
+    return it_will_upgrade_lock;
   }
   // 判断是不是在队列的最前面【第一个 waiting 的 request】， 前面的正在阻塞你也是需要等待的
   bool first_waiting{true};
   std::unordered_set<LockMode> mode_set;
+  std::unordered_set<std::shared_ptr<LockRequest>> waiting_set;
   for (auto &it : request_queue->request_queue_) {  // lock_request*
     if (it->granted_) {
       continue;
@@ -169,27 +170,18 @@ auto LockManager::GrantLock(Transaction *txn, const LockMode &lock_mode, LockReq
           }
         }
         // 目前就是所有的 waiting 的请求都能够授予锁了
+        for (auto &request_item : waiting_set) {
+          request_item->granted_ = true;
+        }
         return true;
       }
       return false;
     }
-
-    //    // 本事务是最前面的等待的请求
-    //    if (first_waiting && it->txn_id_ == txn->GetTransactionId()) {
-    //      return true;
-    //    }
-    //    // 本事务不是最前面等待的，但是兼容前面的锁
-    //    if (it->txn_id_ == txn->GetTransactionId()) {
-    //      if (CheckCompatible(txn, lock_mode, request_queue, &mode_set)) {  // 同前面的所有的 waiting 请求都是兼容的
-    //        return true;
-    //      }
-    //      return false;
-    //    }
     first_waiting = false;  // 能够走到这里那么下一个判断的就不是第1个了
     // 根本不是本事务，更新一下数据
     mode_set.insert(it->lock_mode_);
+    waiting_set.insert(it);  // 将前面的 waiting 的 request 放进来
   }
-  //
   UNREACHABLE("判断是否能够加锁，一定走不到这里【只要current-txn加入到了队列中】");
   return true;
 }
@@ -201,7 +193,7 @@ void LockManager::BookKeepForTransRow(Transaction *txn, const LockMode &lock_mod
   } else if (lock_mode == LockMode::EXCLUSIVE) {
     (*txn->GetExclusiveRowLockSet())[oid].insert(rid);
   } else {
-    std::logic_error("bookkeep the rows, the lock mode is not S Or X\n");
+    throw std::logic_error("bookkeep the rows, the lock mode is not S Or X\n");
   }
 }
 
@@ -212,7 +204,7 @@ void LockManager::BookKeepForTransUnRow(Transaction *txn, const LockMode &lock_m
   } else if (lock_mode == LockMode::EXCLUSIVE) {
     (*txn->GetExclusiveRowLockSet())[oid].erase(rid);
   } else {
-    std::logic_error("bookkeep the rows, the lock mode is not S Or X\n");
+    throw std::logic_error("bookkeep the rows, the lock mode is not S Or X\n");
   }
 }
 
@@ -298,10 +290,7 @@ auto LockManager::CheckIfCanUpgrade(Transaction *txn, const LockMode &exist_mode
 
 auto LockManager::CheckAbort(Transaction *txn) -> bool {
   // condition: 目前已经是能够授予锁了 但是肯能外部的状态已经是 abort 了
-  if (txn->GetState() == TransactionState::ABORTED) {
-    return false;
-  }
-  return true;
+  return txn->GetState() != TransactionState::ABORTED;
 }
 
 auto LockManager::LockTable(Transaction *txn, LockMode lock_mode, const table_oid_t &oid) -> bool {
@@ -393,7 +382,9 @@ auto LockManager::LockTable(Transaction *txn, LockMode lock_mode, const table_oi
     // 3. 等待直到新锁被授予
     {
       BookKeepForTransUnTable(txn, exist_mode, oid);  // 因为升级 lock reques， 所以需要将之前的锁给释放掉
-      request_queue->cv_.wait(queue_lock, [&]() { return GrantLock(txn, lock_mode, request_queue.get(), true); });
+      request_queue->cv_.wait(queue_lock, [&]() {
+        return GrantLock(txn, lock_mode, request_queue.get(), true, new_upgrade_request.get());
+      });
       if (!CheckAbort(txn)) {
         txn->SetState(TransactionState::ABORTED);
         request_queue->request_queue_.remove(new_upgrade_request);  // 需要将锁的申请先释放掉
@@ -414,7 +405,8 @@ auto LockManager::LockTable(Transaction *txn, LockMode lock_mode, const table_oi
   // TODO(shaoguixin): unlock while normal condition
   {
     // 条件变量等待别的事务释放掉锁, 即使这里是不兼容的，也需要放在队列中 waiting
-    request_queue->cv_.wait(queue_lock, [&]() { return GrantLock(txn, lock_mode, request_queue.get(), false); });
+    request_queue->cv_.wait(
+        queue_lock, [&]() { return GrantLock(txn, lock_mode, request_queue.get(), false, new_lock_request.get()); });
     // 需要特殊判断一下 等待的过程中是否出现了 Abort 的情况
     if (!CheckAbort(txn)) {
       request_queue->request_queue_.remove(new_lock_request);
@@ -479,7 +471,7 @@ auto LockManager::UnlockTable(Transaction *txn, const table_oid_t &oid) -> bool 
     // BookKeeping
     BookKeepForTransUnTable(txn, lock_mode, oid);
   }
-  request_queue->cv_.notify_all();  // notify 不需要获得锁
+  request_queue->cv_.notify_all();  // notify all of the waiting request to get the lock
   return true;
 }
 
@@ -635,7 +627,9 @@ auto LockManager::LockRow(Transaction *txn, LockMode lock_mode, const table_oid_
     // 3. 等待直到新锁被授予
     {
       BookKeepForTransUnRow(txn, exist_mode, oid, rid);  // 直接先释放掉之前的 S 锁
-      request_queue->cv_.wait(queue_lock, [&]() { return GrantLock(txn, lock_mode, request_queue.get(), true); });
+      request_queue->cv_.wait(queue_lock, [&]() {
+        return GrantLock(txn, lock_mode, request_queue.get(), true, new_upgrade_request.get());
+      });
       if (!CheckAbort(txn)) {
         txn->SetState(TransactionState::ABORTED);
         request_queue->request_queue_.remove(new_upgrade_request);
@@ -656,7 +650,8 @@ auto LockManager::LockRow(Transaction *txn, LockMode lock_mode, const table_oid_
   // TODO(shaoguixin): unlock while normal condition
   {
     // 5. 尝试获得锁
-    request_queue->cv_.wait(queue_lock, [&]() { return GrantLock(txn, lock_mode, request_queue.get(), false); });
+    request_queue->cv_.wait(
+        queue_lock, [&]() { return GrantLock(txn, lock_mode, request_queue.get(), false, new_lock_request.get()); });
     if (!CheckAbort(txn)) {
       txn->SetState(TransactionState::ABORTED);
       request_queue->request_queue_.remove(new_lock_request);

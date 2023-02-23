@@ -78,6 +78,7 @@ TEST(LockManagerTest, CompatibilityTest1) {
    std::this_thread::sleep_for(std::chrono::milliseconds(50));
    CheckTableLockSizes(txn1, 0, 0, 0, 0, 0);  // 因为txn1正在被阻塞
    CheckTableLockSizes(txn2, 0, 0, 0, 0, 0);  // 为什么没有加上 IS 锁呢？
+   LOG_INFO("txn0 will unlock S");
    lock_mgr.UnlockTable(txn0, oid);
    txn_mgr.Commit(txn0);
  });
@@ -86,6 +87,7 @@ TEST(LockManagerTest, CompatibilityTest1) {
    bool res;
    std::this_thread::sleep_for(std::chrono::milliseconds(20));
    res = lock_mgr.LockTable(txn1, LockManager::LockMode::SHARED_INTENTION_EXCLUSIVE, oid);  // blocking until txn0 unlock S latch
+   LOG_INFO("txn1 SIX unlocked");
    EXPECT_TRUE(res);
    std::this_thread::sleep_for(std::chrono::milliseconds(20));
    CheckTableLockSizes(txn2, 0, 0, 1, 0, 0);
@@ -97,6 +99,7 @@ TEST(LockManagerTest, CompatibilityTest1) {
    bool res;
    std::this_thread::sleep_for(std::chrono::milliseconds(30));
    res = lock_mgr.LockTable(txn2, LockManager::LockMode::INTENTION_SHARED, oid);
+   LOG_INFO("txn0 IS unlocked");
    EXPECT_TRUE(res);
    std::this_thread::sleep_for(std::chrono::milliseconds(40));
    res = lock_mgr.UnlockTable(txn2, oid);

@@ -64,7 +64,6 @@ class LockManager {
   class LockRequestQueue {
    public:
     /** List of lock requests for the same resource (table or row) */
-//    std::list<LockRequest *> request_queue_;
     std::list<std::shared_ptr<LockRequest>> request_queue_;
     /** For notifying blocked transactions on this rid */
     std::condition_variable cv_;
@@ -311,7 +310,7 @@ class LockManager {
                        std::unordered_set<LockMode> *mode_set = nullptr);
 
   auto GrantLock(Transaction *txn, const LockMode &lock_mode, LockRequestQueue *request_queue,
-                 bool it_will_upgrade_lock) -> bool;
+                 bool it_will_upgrade_lock, LockRequest *request = nullptr) -> bool;
 
   void BookKeepForTransTable(Transaction *txn, const LockMode &lock_mode, const table_oid_t &oid);
 
@@ -319,13 +318,13 @@ class LockManager {
 
   void BookKeepForTransRow(Transaction *txn, const LockMode &lock_mode, const table_oid_t &oid, const RID &rid);
 
-  void BookKeepForTransUnRow(Transaction *txn, const LockMode &lock_mode, const table_oid_t& oid, const RID &rid);
+  void BookKeepForTransUnRow(Transaction *txn, const LockMode &lock_mode, const table_oid_t &oid, const RID &rid);
 
   auto CheckIfCanUpgrade(Transaction *txn, const LockMode &exist_mode, const LockMode &lock_mode) -> bool;
 
   void UpdateTxnPhaseWhileUnlock(Transaction *txn, const LockMode &lock_mode);
 
-  auto CheckAbort(Transaction* txn) -> bool;
+  auto CheckAbort(Transaction *txn) -> bool;
 
  private:
   /** Fall 2022 */
