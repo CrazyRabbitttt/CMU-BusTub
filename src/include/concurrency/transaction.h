@@ -149,7 +149,8 @@ class TransactionAbortException : public std::exception {
       case AbortReason::ATTEMPTED_UNLOCK_BUT_NO_LOCK_HELD:
         return "Transaction " + std::to_string(txn_id_) + " aborted because attempted to unlock but no lock held \n";
       case AbortReason::GrantLatchButAborted:
-        return "Transaction " + std::to_string(txn_id_) + " aborted because attempted to grant_lock but txn was aborted \n";
+        return "Transaction " + std::to_string(txn_id_) +
+               " aborted because attempted to grant_lock but txn was aborted \n";
     }
     // Todo: Should fail with unreachable.
     return "";

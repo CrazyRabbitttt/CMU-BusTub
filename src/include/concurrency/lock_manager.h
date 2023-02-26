@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <condition_variable>  // NOLINT
 #include <list>
+#include <map>
 #include <memory>
 #include <mutex>  // NOLINT
 #include <unordered_map>
@@ -29,6 +30,15 @@
 namespace bustub {
 
 class TransactionManager;
+
+static const std::unordered_map<IsolationLevel, std::string> IsoLevelToString{{IsolationLevel::REPEATABLE_READ, "RR"},
+                                                                              {IsolationLevel::READ_UNCOMMITTED, "RU"},
+                                                                              {IsolationLevel::READ_COMMITTED, "RC"}};
+
+static const std::unordered_map<int, std::string> LockModeToString{
+    {0, " S "}, {1, " X "}, {2, "IS "}, {3, "IX "}, {4, "SIX"}};
+
+enum class CheckUpState { NORMAL_REQUEST, REPEAT_REQUEST, UPGRADE_REQUEST, INVALID_REQUEST };
 
 /**
  * LockManager handles transactions asking for locks on records.
@@ -59,6 +69,11 @@ class LockManager {
     RID rid_;
     /** Whether the lock has been granted or not */
     bool granted_{false};
+
+    void PrintRequest() {
+      LOG_INFO("Request: txnid %d %s %d grant:%d", txn_id_, LockModeToString.at((int)lock_mode_).c_str(), oid_,
+               (int)granted_);
+    }
   };
 
   class LockRequestQueue {
@@ -292,6 +307,11 @@ class LockManager {
    */
   auto HasCycle(txn_id_t *txn_id) -> bool;
 
+  auto detect_cycle(std::map<txn_id_t, std::vector<txn_id_t>> &graph) -> std::pair<bool, txn_id_t>;
+
+  auto dfs(int node, std::map<int, std::vector<int>> &graph, std::vector<bool> &visited, std::vector<bool> &recStack,
+           int &max_node) -> bool;
+
   /**
    * @return all edges in current waits_for graph
    */
@@ -302,7 +322,7 @@ class LockManager {
    */
   auto RunCycleDetection() -> void;
 
-  auto CheckTransStateAndLockMode(Transaction *txn, const LockMode &lock_mode) -> bool;
+  auto CheckTransStateAndLockMode(Transaction *txn, const LockMode &lock_mode, bool is_table = true) -> bool;
 
   auto CheckTwoModeCompatible(const LockMode &exist_mode, const LockMode &lock_mode) -> bool;
 
@@ -310,7 +330,7 @@ class LockManager {
                        std::unordered_set<LockMode> *mode_set = nullptr);
 
   auto GrantLock(Transaction *txn, const LockMode &lock_mode, LockRequestQueue *request_queue,
-                 bool it_will_upgrade_lock, LockRequest *request = nullptr) -> bool;
+                 bool it_will_upgrade_lock, const std::shared_ptr<LockRequest> &requestr) -> bool;
 
   void BookKeepForTransTable(Transaction *txn, const LockMode &lock_mode, const table_oid_t &oid);
 
@@ -325,6 +345,12 @@ class LockManager {
   void UpdateTxnPhaseWhileUnlock(Transaction *txn, const LockMode &lock_mode);
 
   auto CheckAbort(Transaction *txn) -> bool;
+
+  auto CheckTableWillUpgrade(Transaction *txn, const LockMode &lock_mode, const table_oid_t &oid, bool is_table = true)
+      -> CheckUpState;
+
+  auto CheckRowWillUpgrade(Transaction *txn, const LockMode &lock_mode, const table_oid_t &oid, const RID &rid)
+      -> CheckUpState;
 
  private:
   /** Fall 2022 */
@@ -341,7 +367,7 @@ class LockManager {
   std::atomic<bool> enable_cycle_detection_;
   std::thread *cycle_detection_thread_;
   /** Waits-for graph representation. */
-  std::unordered_map<txn_id_t, std::vector<txn_id_t>> waits_for_;
+  std::map<txn_id_t, std::vector<txn_id_t>> waits_for_;
   std::mutex waits_for_latch_;
 };
 

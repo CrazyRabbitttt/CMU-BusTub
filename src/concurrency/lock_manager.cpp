@@ -16,10 +16,12 @@
 #include "concurrency/transaction.h"
 #include "concurrency/transaction_manager.h"
 
+#include <algorithm>
+
 namespace bustub {
 
 // 检查 transaction 的状态和 隔离级别
-auto LockManager::CheckTransStateAndLockMode(Transaction *txn, const LockMode &lock_mode) -> bool {
+auto LockManager::CheckTransStateAndLockMode(Transaction *txn, const LockMode &lock_mode, bool is_table) -> bool {
   auto txn_id = txn->GetTransactionId();
   auto isolation_level = txn->GetIsolationLevel();
   // 1. 检查 txn 的状态，如果是 Abort/Commit 状态就是逻辑异常
@@ -28,14 +30,30 @@ auto LockManager::CheckTransStateAndLockMode(Transaction *txn, const LockMode &l
     throw std::logic_error("the txn shouldn't be abort Or commit while lock table");
     return false;
   }
+
+  if (isolation_level == IsolationLevel::READ_UNCOMMITTED) {
+    if (lock_mode != LockMode::INTENTION_EXCLUSIVE && lock_mode != LockMode::EXCLUSIVE) {
+      txn->SetState(TransactionState::ABORTED);
+      throw TransactionAbortException(txn_id, AbortReason::LOCK_SHARED_ON_READ_UNCOMMITTED);
+      return false;
+    }
+  }
+
   // 1.2 如果是 shrinking phase, 收缩阶段也能加锁？（写锁一般是不能够授予的）
   if (txn_state == TransactionState::SHRINKING) {
+    if (!is_table) {
+      // X, IX 锁在 row 的 shrinking 阶段也是不允许的
+      txn->SetState(TransactionState::ABORTED);
+      throw TransactionAbortException(txn_id, AbortReason::LOCK_ON_SHRINKING);
+      return false;
+    }
     // 可重读读 + shrinking 下不能够进行加锁
     if (isolation_level == IsolationLevel::REPEATABLE_READ) {
       txn->SetState(TransactionState::ABORTED);
       throw TransactionAbortException(txn_id, AbortReason::LOCK_ON_SHRINKING);
       return false;
     }
+    // 读提交下只有 IS S锁能够通过
     if (isolation_level == IsolationLevel::READ_COMMITTED) {
       if (lock_mode != LockMode::INTENTION_SHARED && lock_mode != LockMode::SHARED) {
         txn->SetState(TransactionState::ABORTED);
@@ -74,30 +92,22 @@ auto LockManager::CheckTransStateAndLockMode(Transaction *txn, const LockMode &l
 auto LockManager::CheckTwoModeCompatible(const LockMode &exist_mode, const LockMode &lock_mode) -> bool {
   switch (exist_mode) {
     case LockMode::INTENTION_SHARED:
-      if (lock_mode == LockMode::EXCLUSIVE) {
-        return false;
-      }
+      return lock_mode != LockMode::EXCLUSIVE;
       break;
     case LockMode::INTENTION_EXCLUSIVE:
-      if (lock_mode != LockMode::INTENTION_SHARED && lock_mode != LockMode::INTENTION_EXCLUSIVE) {
-        return false;
-      }
+      return lock_mode == LockMode::INTENTION_SHARED || lock_mode == LockMode::INTENTION_EXCLUSIVE;
       break;
     case LockMode::SHARED:
-      if (lock_mode != LockMode::INTENTION_SHARED && lock_mode != LockMode::SHARED) {
-        return false;
-      }
+      return lock_mode == LockMode::INTENTION_SHARED || lock_mode == LockMode::SHARED;
       break;
     case LockMode::SHARED_INTENTION_EXCLUSIVE:
-      if (lock_mode != LockMode::INTENTION_SHARED) {
-        return false;
-      }
+      return lock_mode == LockMode::INTENTION_SHARED;
       break;
     case LockMode::EXCLUSIVE:
       return false;
       break;
   }
-  return true;
+  UNREACHABLE("判断兼容性，上面已经将所有情况判断完毕了，这里不可达");
 }
 
 auto LockManager::CheckCompatible(Transaction *txn, const LockMode &lock_mode, LockRequestQueue *request_queue,
@@ -126,18 +136,21 @@ auto LockManager::CheckCompatible(Transaction *txn, const LockMode &lock_mode, L
 }
 
 auto LockManager::GrantLock(Transaction *txn, const LockMode &lock_mode, LockRequestQueue *request_queue,
-                            bool it_will_upgrade_lock, LockRequest *request) -> bool {
+                            bool it_will_upgrade_lock, const std::shared_ptr<LockRequest> &request) -> bool {
+  // 如果在判断等待的条件中就 abort 直接释放掉就好了
+  if (!CheckAbort(txn)) {
+    return true;
+  }
+
   if (request->granted_) {
     return true;
   }
   // 加锁的 mode 兼容性检查
   if (!CheckCompatible(txn, lock_mode, request_queue)) {
-    //    LOG_DEBUG("txn id:%d, check grant lock, 兼容性不行", txn->GetTransactionId());
     return false;
   }
 
   // 目前的兼容性是通过了的，需要判断优先级是不是最高的 才能给你加锁
-  // 有锁升级的情况
   if (request_queue->upgrading_ != INVALID_TXN_ID) {
     // 本次的请求就是锁升级请求，优先级最高, 如果不是的话那就是别的事务正在加锁，不能够授予
     return it_will_upgrade_lock;
@@ -249,42 +262,36 @@ void LockManager::BookKeepForTransUnTable(Transaction *txn, const LockMode &lock
 
 auto LockManager::CheckIfCanUpgrade(Transaction *txn, const LockMode &exist_mode, const LockMode &lock_mode) -> bool {
   assert(lock_mode == LockMode::SHARED || lock_mode == LockMode::INTENTION_SHARED ||
-         lock_mode == LockMode::SHARED_INTENTION_EXCLUSIVE ||
-         lock_mode == LockMode::EXCLUSIVE | lock_mode == LockMode::INTENTION_EXCLUSIVE);
-  // 走到这里能够升级的话 exist mode 应该是下面几个
-  assert(exist_mode != LockMode::EXCLUSIVE);
+         lock_mode == LockMode::SHARED_INTENTION_EXCLUSIVE || lock_mode == LockMode::EXCLUSIVE ||
+         lock_mode == LockMode::INTENTION_EXCLUSIVE);
 
-  txn_id_t txn_id = txn->GetTransactionId();
+  assert(exist_mode != lock_mode);  // 之间应该检查完毕是否是相等的
 
-  if (exist_mode == LockMode::INTENTION_SHARED) {
-    if (lock_mode == LockMode::INTENTION_SHARED) {
-      txn->SetState(TransactionState::ABORTED);
-      throw TransactionAbortException(txn_id, AbortReason::INCOMPATIBLE_UPGRADE);
+  switch (exist_mode) {
+    case LockMode::INTENTION_SHARED:
+      if (lock_mode == LockMode::INTENTION_SHARED) {
+        return false;
+      }
+      return true;
+    case LockMode::SHARED:
+      if (lock_mode == LockMode::EXCLUSIVE || lock_mode == LockMode::SHARED_INTENTION_EXCLUSIVE) {
+        return true;
+      }
       return false;
-    }
-  }
-  if (exist_mode == LockMode::SHARED) {
-    if (lock_mode != LockMode::EXCLUSIVE && lock_mode != LockMode::SHARED_INTENTION_EXCLUSIVE) {
-      txn->SetState(TransactionState::ABORTED);
-      throw TransactionAbortException(txn_id, AbortReason::INCOMPATIBLE_UPGRADE);
+    case LockMode::INTENTION_EXCLUSIVE:
+      if (lock_mode == LockMode::EXCLUSIVE || lock_mode == LockMode::SHARED_INTENTION_EXCLUSIVE) {
+        return true;
+      }
       return false;
-    }
-  }
-  if (exist_mode == LockMode::INTENTION_EXCLUSIVE) {
-    if (lock_mode != LockMode::EXCLUSIVE && lock_mode != LockMode::SHARED_INTENTION_EXCLUSIVE) {
-      txn->SetState(TransactionState::ABORTED);
-      throw TransactionAbortException(txn_id, AbortReason::INCOMPATIBLE_UPGRADE);
+    case LockMode::SHARED_INTENTION_EXCLUSIVE:
+      if (lock_mode == LockMode::EXCLUSIVE) {
+        return true;
+      }
       return false;
-    }
-  }
-  if (exist_mode == LockMode::SHARED_INTENTION_EXCLUSIVE) {
-    if (lock_mode != LockMode::EXCLUSIVE) {
-      txn->SetState(TransactionState::ABORTED);
-      throw TransactionAbortException(txn_id, AbortReason::INCOMPATIBLE_UPGRADE);
+    case LockMode::EXCLUSIVE:
       return false;
-    }
   }
-  return true;
+  UNREACHABLE("check if can upgrade");
 }
 
 auto LockManager::CheckAbort(Transaction *txn) -> bool {
@@ -292,136 +299,191 @@ auto LockManager::CheckAbort(Transaction *txn) -> bool {
   return txn->GetState() != TransactionState::ABORTED;
 }
 
+auto LockManager::CheckRowWillUpgrade(Transaction *txn, const LockMode &lock_mode, const table_oid_t &oid,
+                                      const RID &rid) -> CheckUpState {
+  auto s_row_set = txn->GetSharedRowLockSet();
+  auto x_row_set = txn->GetExclusiveRowLockSet();
+  LockMode exist_mode;
+  if (!(*s_row_set)[oid].count(rid) && !(*x_row_set)[oid].count(rid)) {
+    return CheckUpState::NORMAL_REQUEST;
+  }
+  if ((*s_row_set)[oid].count(rid)) {
+    exist_mode = LockMode::SHARED;
+  } else {
+    exist_mode = LockMode::EXCLUSIVE;
+  }
+  if (exist_mode == lock_mode) {
+    return CheckUpState::REPEAT_REQUEST;
+  }
+  if (CheckIfCanUpgrade(txn, exist_mode, lock_mode)) {
+    return CheckUpState::UPGRADE_REQUEST;
+  }
+  return CheckUpState::INVALID_REQUEST;
+}
+
+auto LockManager::CheckTableWillUpgrade(Transaction *txn, const LockMode &lock_mode, const table_oid_t &oid,
+                                        bool is_table) -> CheckUpState {
+  auto s_table_set = txn->GetSharedTableLockSet();
+  auto x_table_set = txn->GetExclusiveTableLockSet();
+  auto is_table_set = txn->GetIntentionSharedTableLockSet();
+  auto ix_table_set = txn->GetIntentionExclusiveTableLockSet();
+  auto six_table_set = txn->GetSharedIntentionExclusiveTableLockSet();
+
+  LockMode exist_mode;
+
+  // 之前没有在 oid 加过锁 => normal request
+  if (!s_table_set->count(oid) && !x_table_set->count(oid) && !is_table_set->count(oid) && !ix_table_set->count(oid) &&
+      !six_table_set->count(oid)) {
+    return CheckUpState::NORMAL_REQUEST;
+  }
+  if (s_table_set->count(oid)) {
+    exist_mode = LockMode::SHARED;
+  } else if (x_table_set->count(oid)) {
+    exist_mode = LockMode::EXCLUSIVE;
+  } else if (is_table_set->count(oid)) {
+    exist_mode = LockMode::INTENTION_SHARED;
+  } else if (ix_table_set->count(oid)) {
+    exist_mode = LockMode::INTENTION_EXCLUSIVE;
+  } else {
+    exist_mode = LockMode::SHARED_INTENTION_EXCLUSIVE;
+  }
+  // 如果是相同的 Lock Request
+  if (lock_mode == exist_mode) {
+    return CheckUpState::REPEAT_REQUEST;
+  }
+  // 如果是能够升级的
+  if (CheckIfCanUpgrade(txn, exist_mode, lock_mode)) {
+    return CheckUpState::UPGRADE_REQUEST;
+  }
+  // 剩下的就是不合理的加锁请求，记得抛出异常
+  return CheckUpState::INVALID_REQUEST;
+}
+
 auto LockManager::LockTable(Transaction *txn, LockMode lock_mode, const table_oid_t &oid) -> bool {
+  LOG_INFO("txn %d %s  LockTable %d  %s ", txn->GetTransactionId(),
+           IsoLevelToString.at(txn->GetIsolationLevel()).c_str(), oid, LockModeToString.at((int)lock_mode).c_str());
   auto txn_id = txn->GetTransactionId();
-  // 保证了锁请求、事务、隔离级别的兼容
+  /** 保证了锁请求、事务、隔离级别的兼容 */
   if (!CheckTransStateAndLockMode(txn, lock_mode)) {
     return false;
   }
+  /** 直接在外部检查是否升级 */
+  bool upgrade_flag{false};
+  auto if_can_upgrade = CheckTableWillUpgrade(txn, lock_mode, oid);
+  if (if_can_upgrade == CheckUpState::REPEAT_REQUEST) {
+    return true;
+  } else if (if_can_upgrade == CheckUpState::INVALID_REQUEST) {
+    txn->SetState(TransactionState::ABORTED);
+    throw TransactionAbortException(txn_id, AbortReason::INCOMPATIBLE_UPGRADE);
+    return false;
+  } else if (if_can_upgrade == CheckUpState::UPGRADE_REQUEST) {
+    upgrade_flag = true;
+  }
+
   // 获得 table 对应的 lock request queue
   std::shared_ptr<LockRequestQueue> request_queue;
-
   // =======================================================================================
   // LOCK THE TABLE MAP LATCH, 然后在内部锁住 QUEUE
   // =======================================================================================
   table_lock_map_latch_.lock();
   if (!static_cast<bool>(table_lock_map_.count(oid))) {
-    // 创建一个新的 queue
     auto new_request_queue = std::make_shared<LockRequestQueue>();
     std::list<std::shared_ptr<LockRequest>> request_list{};
-    new_request_queue->request_queue_ = std::move(request_list);
-
+    new_request_queue->request_queue_ = request_list;
     table_lock_map_[oid] = new_request_queue;
-  } else {
-    request_queue = table_lock_map_[oid];
+
+    // 这个是第一条数据，直接将 request 放进队列中就好了
+    auto new_lock_request = std::make_shared<LockRequest>(txn_id, lock_mode, oid);
+    new_request_queue->request_queue_.emplace_back(new_lock_request);  // 添加锁
+    BookKeepForTransTable(txn, lock_mode, oid);                        // 添加记录
+    new_lock_request->granted_ = true;                                 // 授予锁
+    table_lock_map_latch_.unlock();
+    return true;
   }
-  // TODO(sgx):Lock queue
+
   request_queue = table_lock_map_[oid];
   std::unique_lock<std::mutex> queue_lock(request_queue->latch_);
-  //  LOG_DEBUG("txn id:%d lock the table queue:%d", txn_id, oid);
   table_lock_map_latch_.unlock();
   // =======================================================================================
   // UNLOCK THE TABLE MAP LATCH
   // =======================================================================================
 
-  bool if_can_upgrade_lock{false};
-  LockRequest *exist_request{nullptr};  // 记录本事务之前已经授权的 Request
-
-  assert(request_queue.get() != nullptr);
-  // Check if this request is a lock upgrade
-  auto &queue = request_queue->request_queue_;
-  if (!queue.empty()) {
-    // 查看是否是有与当前事务相同的请求
-    for (auto &it : queue) {
-      if (it->txn_id_ == txn_id) {
-        assert(it->granted_ == true);
-        exist_request = it.get();
-        if_can_upgrade_lock = true;
-        break;
-      }
-    }
-  }
-  // 3.尝试对锁进行升级, 判断 mode 是否与之前的一样
-  if (if_can_upgrade_lock) {
-    assert(exist_request != nullptr);
-    // 如果 lock_mode 相同(重复的请求) 直接Return就好了
-    if (exist_request->lock_mode_ == lock_mode) {
-      request_queue->latch_.unlock();
-      return true;
-    }
-    // 有其他的事务正在进行尝试升级
-    if (request_queue->upgrading_ != INVALID_TXN_ID) {
+  if (upgrade_flag) {
+    // 其他的事务正在升级呢
+    if (request_queue->upgrading_ != INVALID_TXN_ID && request_queue->upgrading_ != txn_id) {
       request_queue->latch_.unlock();
       txn->SetState(TransactionState::ABORTED);
       throw TransactionAbortException(txn_id, AbortReason::UPGRADE_CONFLICT);
       return false;
     }
-    // 判断升级的锁是否是兼容的, 不能反向升级
-    // valid: IS -> [S, X, IX, SIX] S -> [X, SIX] IX -> [X, SIX] SIX -> [X]
-    auto exist_mode = exist_request->lock_mode_;
-    if (!CheckIfCanUpgrade(txn, exist_mode, lock_mode)) {
+    request_queue->upgrading_ = txn_id;
+    LockRequest *exist_request{nullptr};  // 记录本事务之前已经授权的 Request
+    LockMode exist_mode;
+    // 首先获得 exist_lock_mode
+    for (auto &it : request_queue->request_queue_) {
+      if (it->txn_id_ == txn_id) {
+        assert(it->granted_ == true);
+        exist_request = it.get();
+        exist_mode = exist_request->lock_mode_;
+        break;
+      }
+    }
+    // 检查是否能够升级
+    if (!CheckIfCanUpgrade(txn, exist_request->lock_mode_, lock_mode)) {
       txn->SetState(TransactionState::ABORTED);
       throw TransactionAbortException(txn_id, AbortReason::INCOMPATIBLE_UPGRADE);
       return false;
     }
-
-    // 2. 能够对锁进行升级了 释放当前已经持有的锁，在 queue 中标记正在尝试升级
-    exist_request->granted_ = false;  // 解除同 txn 之前的锁，进行锁升级
-    // 直接释放之前的请求
+    // 删除旧的记录 & 事务中的记录
     auto &list = request_queue->request_queue_;
-    auto index = std::find_if(list.begin(), list.end(),
-                              [&](auto it) { return it->txn_id_ == exist_request->txn_id_ && it->oid_ == oid; });
-    assert(index != list.end());
-    list.remove(*index);
-    request_queue->upgrading_ = 1;  // 标记为尝试升级锁
-
+    auto index1 = std::find_if(list.begin(), list.end(),
+                               [&](auto it) { return it->txn_id_ == exist_request->txn_id_ && it->oid_ == oid; });
+    list.remove(*index1);
+    BookKeepForTransUnTable(txn, exist_mode, oid);
+    // 将新的request插入到队列的最前面的 waiting 的前面（成为最新的waiting）
+    auto index = request_queue->request_queue_.begin();
     auto new_upgrade_request = std::make_shared<LockRequest>(txn_id, lock_mode, oid);
-    request_queue->request_queue_.emplace_back(new_upgrade_request);
-    // TODO(shaoguixin): unlock while upgrade condition
-    // 3. 等待直到新锁被授予
-    {
-      BookKeepForTransUnTable(txn, exist_mode, oid);  // 因为升级 lock reques， 所以需要将之前的锁给释放掉
-      request_queue->cv_.wait(queue_lock, [&]() {
-        return GrantLock(txn, lock_mode, request_queue.get(), true, new_upgrade_request.get());
-      });
-      if (!CheckAbort(txn)) {
-        txn->SetState(TransactionState::ABORTED);
-        request_queue->request_queue_.remove(new_upgrade_request);  // 需要将锁的申请先释放掉
-        return false;
+    if (request_queue->request_queue_.empty()) {
+      request_queue->request_queue_.push_back(new_upgrade_request);
+    } else {
+      for (auto &it : request_queue->request_queue_) {
+        if (it->granted_) {
+          std::advance(index, 1);  // 向后移动一位
+          continue;
+        }
+        break;
       }
-      new_upgrade_request->granted_ = true;
-      request_queue->upgrading_ = INVALID_TXN_ID;  // 升级结束
-      // book keeping, 将加锁记录更新到 transaction 中
-      BookKeepForTransTable(txn, lock_mode, oid);
-      return true;
+      request_queue->request_queue_.insert(index, new_upgrade_request);
     }
-  }
-
-  // 4. 平凡的锁申请, 加入到申请队列中
-  auto new_lock_request = std::make_shared<LockRequest>(txn_id, lock_mode, oid);
-  //  auto *new_lock_request = new LockRequest(txn_id, lock_mode, oid);
-  request_queue->request_queue_.emplace_back(new_lock_request);
-  // TODO(shaoguixin): unlock while normal condition
-  {
-    // 条件变量等待别的事务释放掉锁, 即使这里是不兼容的，也需要放在队列中 waiting
     request_queue->cv_.wait(
-        queue_lock, [&]() { return GrantLock(txn, lock_mode, request_queue.get(), false, new_lock_request.get()); });
-    // 需要特殊判断一下 等待的过程中是否出现了 Abort 的情况
+        queue_lock, [&]() { return GrantLock(txn, lock_mode, request_queue.get(), true, new_upgrade_request); });
+    if (!CheckAbort(txn)) {
+      request_queue->request_queue_.remove(new_upgrade_request);
+      txn->SetState(TransactionState::ABORTED);
+      return false;
+    }
+    new_upgrade_request->granted_ = true;  // 授予锁
+    BookKeepForTransTable(txn, lock_mode, oid);
+    request_queue->upgrading_ = INVALID_TXN_ID;  // 升级结束，释放掉flag
+  } else {                                       // 不用升级，简单的将锁加到后面
+    auto new_lock_request = std::make_shared<LockRequest>(txn_id, lock_mode, oid);
+    request_queue->request_queue_.emplace_back(new_lock_request);
+    request_queue->cv_.wait(queue_lock,
+                            [&]() { return GrantLock(txn, lock_mode, request_queue.get(), false, new_lock_request); });
     if (!CheckAbort(txn)) {
       request_queue->request_queue_.remove(new_lock_request);
       txn->SetState(TransactionState::ABORTED);
-      //      throw TransactionAbortException(txn_id, AbortReason::GrantLatchButAborted);
       return false;
     }
-    // 等待成功，下面进行普通的锁的授予
+    // 通过了授予锁的检查，授予锁
     new_lock_request->granted_ = true;
-    // book keeping for transaction
     BookKeepForTransTable(txn, lock_mode, oid);
-    return true;
   }
+  return true;
 }
 
 auto LockManager::UnlockTable(Transaction *txn, const table_oid_t &oid) -> bool {
+  LOG_INFO("Unlock table txnid %d, oid %d", txn->GetTransactionId(), oid);
   txn_id_t txn_id = txn->GetTransactionId();
   // 1. 检查 row lock 是否是全部释放掉了
   auto s_row_s_lock_map = *(txn->GetSharedRowLockSet());
@@ -436,12 +498,12 @@ auto LockManager::UnlockTable(Transaction *txn, const table_oid_t &oid) -> bool 
   table_lock_map_latch_.lock();
   assert(table_lock_map_.count(oid));  // 存在对应的 queue
   request_queue = table_lock_map_[oid];
+  LockMode lock_mode;
   {
     std::unique_lock<std::mutex> queue_lock(request_queue->latch_);
     table_lock_map_latch_.unlock();
     // 2. 遍历请求队列，找到 unlock 对应的 granted 请求
     bool found_the_lock{false};
-    LockMode lock_mode;
     for (auto &it : request_queue->request_queue_) {  // LockRequest *
       if (it->txn_id_ == txn_id && it->oid_ == oid) {
         if (!it->granted_) {
@@ -451,8 +513,6 @@ auto LockManager::UnlockTable(Transaction *txn, const table_oid_t &oid) -> bool 
         }
         found_the_lock = true;
         lock_mode = it->lock_mode_;
-        // 找到了对应的 锁了, 根据隔离级别和锁类型修改 txn phase
-        UpdateTxnPhaseWhileUnlock(txn, lock_mode);
         break;
       }
     }
@@ -467,10 +527,10 @@ auto LockManager::UnlockTable(Transaction *txn, const table_oid_t &oid) -> bool 
         std::find_if(list.begin(), list.end(), [&](auto it) { return it->txn_id_ == txn_id && it->oid_ == oid; });
     assert(index != list.end());
     list.remove(*index);
-    // BookKeeping
-    BookKeepForTransUnTable(txn, lock_mode, oid);
+    request_queue->cv_.notify_all();  // notify all of the waiting request to get the lock
   }
-  request_queue->cv_.notify_all();  // notify all of the waiting request to get the lock
+  UpdateTxnPhaseWhileUnlock(txn, lock_mode);
+  BookKeepForTransUnTable(txn, lock_mode, oid);
   return true;
 }
 
@@ -500,8 +560,14 @@ void LockManager::UpdateTxnPhaseWhileUnlock(Transaction *txn, const LockMode &lo
 auto LockManager::LockRow(Transaction *txn, LockMode lock_mode, const table_oid_t &oid, const RID &rid) -> bool {
   // 需要先检查是否持有 row 对应的 table_lock
   auto txn_id = txn->GetTransactionId();
+  if (lock_mode != LockMode::SHARED && lock_mode != LockMode::EXCLUSIVE) {
+    txn->SetState(TransactionState::ABORTED);
+    throw TransactionAbortException(txn_id, AbortReason::ATTEMPTED_INTENTION_LOCK_ON_ROW);
+    return false;
+  }
+
   // 保证了锁请求、事务、隔离级别的兼容
-  if (!CheckTransStateAndLockMode(txn, lock_mode)) {
+  if (!CheckTransStateAndLockMode(txn, lock_mode, false)) {
     return false;
   }
   // 检查是否是有 row 对应的 table 的 lock
@@ -518,14 +584,6 @@ auto LockManager::LockRow(Transaction *txn, LockMode lock_mode, const table_oid_
     bool has_table_lock{false};
     for (auto &it : table_request_queue->request_queue_) {  // LockRequest *
       if (it->txn_id_ == txn_id && it->oid_ == oid && it->granted_) {
-        //        if (lock_mode == LockMode::EXCLUSIVE) {
-        //          if (it->lock_mode_ != LockMode::EXCLUSIVE && it->lock_mode_ != LockMode::INTENTION_EXCLUSIVE &&
-        //              it->lock_mode_ == LockMode::SHARED_INTENTION_EXCLUSIVE) {
-        //            txn->SetState(TransactionState::ABORTED);
-        //            throw TransactionAbortException(txn_id, AbortReason::TABLE_LOCK_NOT_PRESENT);
-        //            return false;
-        //          }
-        //        }
         has_table_lock = true;
         break;
       }
@@ -537,23 +595,42 @@ auto LockManager::LockRow(Transaction *txn, LockMode lock_mode, const table_oid_
     }
   }
 
+  /** 保证了锁请求、事务、隔离级别的兼容 */
+  if (!CheckTransStateAndLockMode(txn, lock_mode)) {
+    return false;
+  }
+  /** 直接在外部检查是否升级 */
+  bool upgrade_flag{false};
+  auto if_can_upgrade = CheckRowWillUpgrade(txn, lock_mode, oid, rid);
+  if (if_can_upgrade == CheckUpState::REPEAT_REQUEST) {
+    return true;
+  } else if (if_can_upgrade == CheckUpState::INVALID_REQUEST) {
+    txn->SetState(TransactionState::ABORTED);
+    throw TransactionAbortException(txn_id, AbortReason::INCOMPATIBLE_UPGRADE);
+    return false;
+  } else if (if_can_upgrade == CheckUpState::UPGRADE_REQUEST) {
+    upgrade_flag = true;
+  }
+
   // 获得 table 对应的 lock request queue
   std::shared_ptr<LockRequestQueue> request_queue;
-
   // =======================================================================================
-  // LOCK THE TABLE MAP LATCH, 内部锁住 QUEUE
+  // LOCK THE TABLE MAP LATCH, 然后在内部锁住 QUEUE
   // =======================================================================================
   row_lock_map_latch_.lock();
   if (!static_cast<bool>(row_lock_map_.count(rid))) {
-    // 创建一个新的 queue
     auto new_request_queue = std::make_shared<LockRequestQueue>();
-    //      LockRequest request{txn_id, lock_mode, oid};
     std::list<std::shared_ptr<LockRequest>> request_list{};
-    new_request_queue->request_queue_ = std::move(request_list);
-
+    new_request_queue->request_queue_ = request_list;
     row_lock_map_[rid] = new_request_queue;
-  } else {
-    request_queue = row_lock_map_[rid];
+
+    // 这个是第一条数据，直接将 request 放进队列中就好了
+    auto new_lock_request = std::make_shared<LockRequest>(txn_id, lock_mode, oid, rid);
+    new_request_queue->request_queue_.emplace_back(new_lock_request);  // 添加锁
+    BookKeepForTransRow(txn, lock_mode, oid, rid);                     // 添加记录
+    new_lock_request->granted_ = true;                                 // 授予锁
+    row_lock_map_latch_.unlock();
+    return true;
   }
 
   request_queue = row_lock_map_[rid];
@@ -563,100 +640,75 @@ auto LockManager::LockRow(Transaction *txn, LockMode lock_mode, const table_oid_
   // UNLOCK THE TABLE MAP LATCH
   // =======================================================================================
 
-  bool if_can_upgrade_lock{false};
-  LockRequest *exist_request{nullptr};  // 记录本事务之前已经授权的 Request
-
-  assert(request_queue.get() != nullptr);
-  // Check if this request is a lock upgrade
-  auto &queue = request_queue->request_queue_;
-  // 查看是否是有与当前事务相同的请求
-  if (!queue.empty()) {
-    for (auto &it : queue) {
-      if (it->txn_id_ == txn_id) {
-        assert(it->granted_ == true);
-        exist_request = it.get();
-        if_can_upgrade_lock = true;
-        break;
-      }
-    }
-  }
-
-  // 3.尝试对锁进行升级, 判断 mode 是否与之前的一样
-  if (if_can_upgrade_lock) {
-    assert(exist_request != nullptr);
-    // 如果 lock_mode 相同(重复的请求) 直接Return就好了
-    if (exist_request->lock_mode_ == lock_mode) {
-      request_queue->latch_.unlock();
-      return true;
-    }
-    // 没有其他的事务正在进行尝试升级
-    if (request_queue->upgrading_ != INVALID_TXN_ID) {
+  if (upgrade_flag) {
+    // 其他的事务正在升级呢
+    if (request_queue->upgrading_ != INVALID && request_queue->upgrading_ != txn_id) {
       request_queue->latch_.unlock();
       txn->SetState(TransactionState::ABORTED);
-      LOG_DEBUG("upgrade conflict");
       throw TransactionAbortException(txn_id, AbortReason::UPGRADE_CONFLICT);
       return false;
     }
-    // 判断升级的锁是否是兼容的, 不能反向升级
-    // valid: IS -> [S, X, IX, SIX] S -> [X, SIX] IX -> [X, SIX] SIX -> [X]
-    auto exist_mode = exist_request->lock_mode_;
-    if (!CheckIfCanUpgrade(txn, exist_mode, lock_mode)) {
+    request_queue->upgrading_ = txn_id;
+    LockRequest *exist_request{nullptr};  // 记录本事务之前已经授权的 Request
+    LockMode exist_mode;
+    // 首先获得 exist_lock_mode
+    for (auto &it : request_queue->request_queue_) {
+      if (it->txn_id_ == txn_id) {
+        assert(it->granted_ == true);
+        exist_request = it.get();
+        exist_mode = exist_request->lock_mode_;
+        break;
+      }
+    }
+    // 检查是否能够升级
+    if (!CheckIfCanUpgrade(txn, exist_request->lock_mode_, lock_mode)) {
       txn->SetState(TransactionState::ABORTED);
       throw TransactionAbortException(txn_id, AbortReason::INCOMPATIBLE_UPGRADE);
       return false;
     }
-
-    // 2. 能够对锁进行升级了 释放当前已经持有的锁，在 queue 中标记正在尝试升级
-    exist_request->granted_ = false;  // 解除同 txn 之前的锁，进行锁升级
-    // 直接释放之前的请求
+    // 删除旧的记录 & 事务中的记录
     auto &list = request_queue->request_queue_;
-    auto index = std::find_if(list.begin(), list.end(), [&](auto it) {
-      return it->txn_id_ == exist_request->txn_id_ && it->oid_ == oid && it->rid_ == exist_request->rid_;
+    auto index1 = std::find_if(list.begin(), list.end(), [&](auto it) {
+      return it->txn_id_ == exist_request->txn_id_ && it->oid_ == oid && it->rid_ == rid;
     });
-    assert(index != list.end());
-    list.remove(*index);
-    request_queue->upgrading_ = 1;  // 标记为尝试升级锁
-
+    list.remove(*index1);
+    BookKeepForTransUnRow(txn, exist_mode, oid, rid);
+    // 将新的request插入到队列的最前面的 waiting 的前面（成为最新的waiting）
+    auto index = request_queue->request_queue_.begin();
     auto new_upgrade_request = std::make_shared<LockRequest>(txn_id, lock_mode, oid, rid);
-    request_queue->request_queue_.emplace_back(new_upgrade_request);
-    // 3. 等待直到新锁被授予
-    {
-      BookKeepForTransUnRow(txn, exist_mode, oid, rid);  // 直接先释放掉之前的 S 锁
-      request_queue->cv_.wait(queue_lock, [&]() {
-        return GrantLock(txn, lock_mode, request_queue.get(), true, new_upgrade_request.get());
-      });
-      if (!CheckAbort(txn)) {
-        txn->SetState(TransactionState::ABORTED);
-        request_queue->request_queue_.remove(new_upgrade_request);
-        return false;
+    for (auto &it : request_queue->request_queue_) {
+      if (it->granted_) {
+        std::advance(index, 1);  // 向后移动一位
+        continue;
       }
-
-      new_upgrade_request->granted_ = true;
-      request_queue->upgrading_ = INVALID_TXN_ID;  // 升级结束
-      // book keeping, 将加锁记录更新到 transaction 中
-      BookKeepForTransRow(txn, lock_mode, oid, rid);
-      return true;
+      break;
     }
-  }
-
-  // 4. 平凡的锁申请, 加入到申请队列中
-  auto new_lock_request = std::make_shared<LockRequest>(txn_id, lock_mode, oid, rid);
-  request_queue->request_queue_.emplace_back(new_lock_request);
-  {
-    // 5. 尝试获得锁
+    request_queue->request_queue_.insert(index, new_upgrade_request);
     request_queue->cv_.wait(
-        queue_lock, [&]() { return GrantLock(txn, lock_mode, request_queue.get(), false, new_lock_request.get()); });
+        queue_lock, [&]() { return GrantLock(txn, lock_mode, request_queue.get(), true, new_upgrade_request); });
+    if (!CheckAbort(txn)) {
+      request_queue->request_queue_.remove(new_upgrade_request);
+      txn->SetState(TransactionState::ABORTED);
+      return false;
+    }
+    new_upgrade_request->granted_ = true;  // 授予锁
+    BookKeepForTransRow(txn, lock_mode, oid, rid);
+    request_queue->upgrading_ = INVALID_TXN_ID;  // 升级结束，释放掉flag
+  } else {                                       // 不用升级，简单的将锁加到后面
+    auto new_lock_request = std::make_shared<LockRequest>(txn_id, lock_mode, oid, rid);
+    request_queue->request_queue_.emplace_back(new_lock_request);
+    request_queue->cv_.wait(queue_lock,
+                            [&]() { return GrantLock(txn, lock_mode, request_queue.get(), false, new_lock_request); });
     if (!CheckAbort(txn)) {
       request_queue->request_queue_.remove(new_lock_request);
       txn->SetState(TransactionState::ABORTED);
       return false;
     }
-    // 等待成功，下面进行普通的锁的授予
+    // 通过了授予锁的检查，授予锁
     new_lock_request->granted_ = true;
-    // book keeping for transaction
     BookKeepForTransRow(txn, lock_mode, oid, rid);
-    return true;
   }
+  return true;
 }
 
 auto LockManager::UnlockRow(Transaction *txn, const table_oid_t &oid, const RID &rid) -> bool {
@@ -666,12 +718,12 @@ auto LockManager::UnlockRow(Transaction *txn, const table_oid_t &oid, const RID 
   row_lock_map_latch_.lock();
   assert(row_lock_map_.count(rid));  // 存在对应的 queue
   request_queue = row_lock_map_[rid];
+  LockMode lock_mode;
   {
     std::unique_lock<std::mutex> queue_lock(request_queue->latch_);
     row_lock_map_latch_.unlock();
     // 2. 遍历请求队列，找到 unlock 对应的 granted 请求
     bool found_the_lock{false};
-    LockMode lock_mode;
     for (auto &it : request_queue->request_queue_) {  // LockRequest *
       if (it->txn_id_ == txn_id && it->rid_ == rid) {
         if (!it->granted_) {
@@ -681,8 +733,6 @@ auto LockManager::UnlockRow(Transaction *txn, const table_oid_t &oid, const RID 
         }
         found_the_lock = true;
         lock_mode = it->lock_mode_;
-        // 找到了对应的 锁了, 根据隔离级别和锁类型修改 txn phase
-        UpdateTxnPhaseWhileUnlock(txn, lock_mode);
         break;
       }
     }
@@ -698,11 +748,11 @@ auto LockManager::UnlockRow(Transaction *txn, const table_oid_t &oid, const RID 
     assert(index != list.end());
     list.remove(*index);
 
-    // BookKeeping
-    BookKeepForTransUnRow(txn, lock_mode, oid, rid);
+    request_queue->cv_.notify_all();  // notify 不需要获得锁
   }
-  //  LOG_INFO("Unlock row notify the cv");
-  request_queue->cv_.notify_all();  // notify 不需要获得锁
+  UpdateTxnPhaseWhileUnlock(txn, lock_mode);
+  // BookKeeping
+  BookKeepForTransUnRow(txn, lock_mode, oid, rid);
   return true;
 }
 
@@ -719,31 +769,148 @@ void LockManager::RemoveEdge(txn_id_t t1, txn_id_t t2) {
   waits_for_[t1].erase(index);
 }
 
+auto LockManager::dfs(int node, std::map<int, std::vector<int>> &graph, std::vector<bool> &visited,
+                      std::vector<bool> &recStack, int &max_node) -> bool {
+  visited[node] = true;
+  recStack[node] = true;
+  bool has_cycle = false;
+  for (int neighbor : graph[node]) {
+    if (!visited[neighbor]) {
+      has_cycle = dfs(neighbor, graph, visited, recStack, max_node) || has_cycle;
+    } else if (recStack[neighbor]) {
+      has_cycle = true;
+      if (neighbor > max_node) {
+        max_node = neighbor;
+      }
+    }
+  }
+  recStack[node] = false;
+  return has_cycle;
+}
+
+auto LockManager::detect_cycle(std::map<txn_id_t, std::vector<txn_id_t>> &graph) -> std::pair<bool, txn_id_t> {
+  std::vector<bool> visited(graph.size(), false);
+  std::vector<bool> recStack(graph.size(), false);
+  txn_id_t max_node = -1;
+  bool has_cycle = false;
+  for (const auto &[node, neighbors] : graph) {
+    if (!visited[node]) {
+      has_cycle = dfs(node, graph, visited, recStack, max_node) || has_cycle;
+    }
+  }
+  return {has_cycle, max_node};
+}
+
 auto LockManager::HasCycle(txn_id_t *txn_id) -> bool {
   // Return the minimum txn id(largest txn id)
   auto edges = GetEdgeList();
 
-  return false;
+  for (auto &it : waits_for_) {
+    std::sort(it.second.begin(), it.second.end());
+  }
+  std::pair<bool, txn_id_t> res;
+  res = detect_cycle(waits_for_);
+  if (res.first) {
+    *txn_id = res.second;
+  }
+  return res.first;
 }
 
 auto LockManager::GetEdgeList() -> std::vector<std::pair<txn_id_t, txn_id_t>> {
-  std::vector<std::pair<txn_id_t, txn_id_t>> edges(0);
-
+  std::vector<std::pair<txn_id_t, txn_id_t>> edges;
   for (auto &it : waits_for_) {
     for (auto &g_txn : it.second) {
       edges.emplace_back(std::make_pair(it.first, g_txn));
     }
   }
-
   return edges;
 }
 
 void LockManager::RunCycleDetection() {
   while (enable_cycle_detection_) {
-    std::this_thread::sleep_for(cycle_detection_interval);
-    {  // TODO(students): detect deadlock
+    std::this_thread::sleep_for(cycle_detection_interval);  // 每 million second 进行一次 detection
+    {                                                       // TODO(students): detect deadlock
        // 构建有向图，如果说形成了环那么就优先释放掉 txn_id 比较大【那么就代表这个执行的时间比较短】的事务的锁
-       // 1. 遍历 table_lock_map & row_lock_map 中的所有的请求队列
+       // 1. 遍历 table_lock_map & row_lock_map 中的所有的请求队列, 构建图
+      for (auto &it : table_lock_map_) {
+        auto &request_list = it.second->request_queue_;
+        for (auto &x : request_list) {
+          for (auto &y : request_list) {
+            if (x->txn_id_ == y->txn_id_) {
+              continue;
+            }
+            if (x->granted_ && !y->granted_ && !CheckTwoModeCompatible(x->lock_mode_, y->lock_mode_)) {
+              AddEdge(y->txn_id_, x->txn_id_);
+            }
+          }
+        }
+      }
+
+      for (auto &it : row_lock_map_) {
+        auto &request_list = it.second->request_queue_;
+        for (auto &x : request_list) {
+          for (auto &y : request_list) {
+            if (x->txn_id_ == y->txn_id_) {
+              continue;
+            }
+            if (x->granted_ && !y->granted_ && !CheckTwoModeCompatible(x->lock_mode_, y->lock_mode_)) {
+              AddEdge(y->txn_id_, x->txn_id_);
+            }
+          }
+        }
+      }
+
+      /** 2.检测是否是有环路的等待 */
+      txn_id_t youngest_txn_id;
+      bool has_cycle = HasCycle(&youngest_txn_id);
+      if (has_cycle) {
+        auto txn = TransactionManager::GetTransaction(youngest_txn_id);
+        txn->SetState(TransactionState::ABORTED);
+        // 删除 table request 中的 txn
+        for (auto &it : table_lock_map_) {
+          auto index = it.second->request_queue_.begin();
+          for (auto &item : it.second->request_queue_) {
+            if (item->txn_id_ != youngest_txn_id) {  // 找到了 request_list 了
+              std::advance(index, 1);
+              break;
+            }
+          }
+          (*index)->granted_ = false;
+          it.second->request_queue_.remove(*index);
+          it.second->cv_.notify_all();
+        }
+
+        // 删除 row request list中的 txn
+        for (auto &it : row_lock_map_) {
+          auto index = it.second->request_queue_.begin();
+          for (auto &item : it.second->request_queue_) {
+            if (item->txn_id_ != youngest_txn_id) {  // 找到了 request_list 了
+              std::advance(index, 1);
+              break;
+            }
+          }
+          (*index)->granted_ = false;
+          it.second->request_queue_.remove(*index);
+          it.second->cv_.notify_all();
+        }
+
+        // 移除 graph 中所有与其相关的边
+        for (auto &ii : waits_for_) {
+          if (ii.first == youngest_txn_id) {
+            for (auto &item : ii.second) {
+              RemoveEdge(ii.first, item);
+            }
+          }
+          auto cur_index = ii.second.begin();
+          for (auto &it : ii.second) {
+            if (it != youngest_txn_id) {
+              std::advance(cur_index, 1);
+            }
+          }
+          ii.second.erase(
+              std::remove_if(ii.second.begin(), ii.second.end(), [&](txn_id_t x) { return x == youngest_txn_id; }));
+        }
+      }
     }
   }
 }

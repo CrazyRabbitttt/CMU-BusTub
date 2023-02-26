@@ -62,7 +62,7 @@ class TransactionManager {
 
   /** The transaction map is a global list of all the running transactions in the system. */
   static std::unordered_map<txn_id_t, Transaction *> txn_map;
-  static std::shared_mutex txn_map_mutex;
+  static std::shared_mutex txn_map_mutex;   // 因为多个 transaction 共同被这一个 map 所维护，所以变量的类型直接声明为 static 就行
 
   /**
    * Locates and returns the transaction with the given transaction ID.
@@ -88,7 +88,7 @@ class TransactionManager {
    * Releases all the locks held by the given transaction.
    * @param txn the transaction whose locks should be released
    */
-  void ReleaseLocks(Transaction *txn) {
+  void ReleaseLocks(Transaction *txn) { // release all the locks
     /** Drop all row locks */
     txn->LockTxn();
     std::unordered_map<table_oid_t, std::unordered_set<RID>> row_lock_set;
