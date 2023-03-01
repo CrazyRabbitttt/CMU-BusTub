@@ -19,6 +19,8 @@ namespace bustub {
 #define B_PLUS_TREE_INTERNAL_PAGE_TYPE BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>
 #define INTERNAL_PAGE_HEADER_SIZE 24
 #define INTERNAL_PAGE_SIZE ((BUSTUB_PAGE_SIZE - INTERNAL_PAGE_HEADER_SIZE) / (sizeof(MappingType)))
+#define B_PLUS_TREE_INTERNAL_PAGE BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator>
+
 /**
  * Store n indexed keys and n+1 child pointers (page_id) within internal page.
  * Pointer PAGE_ID(i) points to a subtree in which all keys K satisfy:
@@ -41,27 +43,36 @@ class BPlusTreeInternalPage : public BPlusTreePage {
   auto KeyAt(int index) const -> KeyType;
   void SetKeyAt(int index, const KeyType &key);
   auto ValueAt(int index) const -> ValueType;
-  void SetValueAt(int index, const ValueType &value);
+
   auto ValueIndex(const ValueType &value) const -> int;
 
-  auto Lookup(const KeyType &key, const KeyComparator &comparator) const -> ValueType;
-  void PopulateNewRoot(const ValueType &old_value, const KeyType &new_key, const ValueType &new_value);
-  auto InsertNodeAfter(const ValueType &old_value, const KeyType &new_key, const ValueType &new_value) -> int;
-  void Remove(int index);
-  auto RemoveAndReturnOnlyChild() -> ValueType;
+  auto LookUp(const KeyType &key, const KeyComparator &comparator) -> ValueType;
 
-  void MoveAllTo(BPlusTreeInternalPage *recipient, const KeyType &middle_key, BufferPoolManager *buffer_pool_manager);
   void MoveHalfTo(BPlusTreeInternalPage *recipient, BufferPoolManager *buffer_pool_manager);
-  void MoveFirstToEndOf(BPlusTreeInternalPage *recipient, const KeyType &middle_key,
-                        BufferPoolManager *buffer_pool_manager);
-  void MoveLastToFrontOf(BPlusTreeInternalPage *recipient, const KeyType &middle_key,
-                         BufferPoolManager *buffer_pool_manager);
+
+  void PopulateNewRoot(const ValueType &old_value, const KeyType &new_key, const ValueType &new_value);
+
+  auto InsertNodeAfter(const ValueType &old_value, const KeyType &new_key, const ValueType &new_value) -> int;
+
+  void MoveAllTo(BPlusTreeInternalPage *recipient, int index_in_parent, BufferPoolManager *buffer_pool_manager);
+
+  void MoveFirstToEndOf(BPlusTreeInternalPage *recipient, int index_in_parent, BufferPoolManager *buffer_pool_manager);
+
+  void MoveLastToFrontOf(BPlusTreeInternalPage *recipient, int parent_index, BufferPoolManager *buffer_pool_manager);
+
+  void CopyLastFrom(const MappingType &pair, BufferPoolManager *buffer_pool_manager);
+
+  void CopyFirstFrom(const MappingType &pair, int index_in_parent, BufferPoolManager *buffer_pool_manager);
+
+  void UpdateAllNodesParent(BufferPoolManager *bmp);
+
+  void Remove(int index);
+
+  // Remove only key & value pairs in internal page and return the value
+  auto AdjustRootForInternal() -> ValueType;
 
  private:
   // Flexible array member for page data.
   MappingType array_[1];
-  void CopyNFrom(MappingType *items, int size, BufferPoolManager *buffer_pool_manager);
-  void CopyLastFrom(const MappingType &pair, BufferPoolManager *buffer_pool_manager);
-  void CopyFirstFrom(const MappingType &pair, BufferPoolManager *buffer_pool_manager);
 };
 }  // namespace bustub

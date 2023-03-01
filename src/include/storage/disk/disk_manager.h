@@ -97,7 +97,7 @@ class DiskManager {
   // stream to write log file
   std::fstream log_io_;
   std::string log_name_;
-  // stream to write db file
+  // stream to write db file, use fstream to load pages from disk
   std::fstream db_io_;
   std::string file_name_;
   int num_flushes_{0};
