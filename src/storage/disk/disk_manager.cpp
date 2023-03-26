@@ -50,7 +50,7 @@ DiskManager::DiskManager(const std::string &db_file) : file_name_(db_file) {
   }
 
   std::scoped_lock scoped_db_io_latch(db_io_latch_);
-  db_io_.open(db_file, std::ios::binary | std::ios::in | std::ios::out);
+  db_io_.open(db_file, std::ios::binary | std::ios::in | std::ios::out);  // can read the binary data from the disk
   // directory or file does not exist
   if (!db_io_.is_open()) {
     db_io_.clear();
@@ -79,17 +79,19 @@ void DiskManager::ShutDown() {
  */
 void DiskManager::WritePage(page_id_t page_id, const char *page_data) {
   std::scoped_lock scoped_db_io_latch(db_io_latch_);
-  size_t offset = static_cast<size_t>(page_id) * BUSTUB_PAGE_SIZE;
+  size_t offset = static_cast<size_t>(page_id) * BUSTUB_PAGE_SIZE;  // 根据 page_id 获得具体的 offset of the disk
   // set write cursor to offset
   num_writes_ += 1;
   db_io_.seekp(offset);
-  db_io_.write(page_data, BUSTUB_PAGE_SIZE);
+  db_io_.write(page_data, BUSTUB_PAGE_SIZE);    // 开启了 sync_with_stdio 进行异步的刷盘
   // check for I/O error
   if (db_io_.bad()) {
     LOG_DEBUG("I/O error while writing");
     return;
   }
-  // needs to flush to keep disk file in sync
+  // needs to flush to keep disk file in sync, flush the data to the disk
+  // flush 是将用户缓冲去的数据刷到内核太的缓冲区中
+  // fasync 是将数据刷盘 并且需要等待到数据刷盘成功
   db_io_.flush();
 }
 
@@ -106,7 +108,7 @@ void DiskManager::ReadPage(page_id_t page_id, char *page_data) {
   } else {
     // set read cursor to offset
     db_io_.seekp(offset);
-    db_io_.read(page_data, BUSTUB_PAGE_SIZE);
+    db_io_.read(page_data, BUSTUB_PAGE_SIZE); // 没有进行预读吗？还是操作系统内部进行了预读
     if (db_io_.bad()) {
       LOG_DEBUG("I/O error while reading");
       return;

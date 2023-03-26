@@ -26,6 +26,9 @@
 
 namespace bustub {
 
+constexpr int COUNT_THRESHOLD = 100;
+constexpr std::chrono::duration TIME_THRESHOLD = std::chrono::microseconds(3000);  // 三秒钟强制进行一次刷盘
+
 /**
  * BufferPoolManager reads disk pages to and from its internal buffer pool.
  */
@@ -148,7 +151,8 @@ class BufferPoolManagerInstance : public BufferPoolManager {
   const size_t bucket_size_ = 4;
 
   /** Array of buffer pool pages. */
-  Page *pages_;  // 保存 Page 数据的 Frame 数组
+  Page *pages_;  // 保存 Page 数据的 Frame 数组, cache the data of the pages, iff u want to get the data, first try to
+                 // fetch it in the cache array
   /** Pointer to the disk manager. 可能不会用到，消除编译器的警告 */
   DiskManager *disk_manager_ __attribute__((__unused__));
   /** Pointer to the log manager. Please ignore this for P1. */
@@ -158,9 +162,23 @@ class BufferPoolManagerInstance : public BufferPoolManager {
   /** Replacer to find unpinned pages for replacement. */
   LRUKReplacer *replacer_;  // 保存了 unpinned frame 的索引
   /** List of free frames that don't have any pages on them. */
-  std::list<frame_id_t> free_list_;  // 所有的 Free frame 的索引(frame_id)
+  std::list<frame_id_t> free_list_;  // 所有的 Free frame 的索引(frame_id), set of the free page's index
   /** This latch protects shared data structures. We recommend updating this comment to describe what it protects. */
   std::mutex latch_;
+  /** The dirty page list*/
+  std::vector<Page*> flush_list_;
+  /** This thread used to flush the dirty page periodic */
+  std::thread background_flush_dirty_;
+  /** This latch protected the flush_list */
+  std::mutex flush_list_latch_;
+  /** The condition variable to wait-notify the flush thread flushing the dirty page */
+  std::condition_variable cond_;
+  /** Last flush time to manager the periodic */
+  std::chrono::microseconds last_flush_time_;
+  /** Indicates whether the process is done */
+  std::atomic<bool> done_{false};
+
+  void FlushWork();
 
   /**
    * @brief Allocate a page on disk. Caller should acquire the latch before calling this function.

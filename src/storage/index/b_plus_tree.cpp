@@ -171,7 +171,7 @@ auto BPLUSTREE_TYPE::CrabbingFetchPage(page_id_t page_id, OpType op, page_id_t p
   Lock(exclusive, page);  // lock the page
   auto node = reinterpret_cast<BPlusTreePage *>(page->GetData());
   // Release the old node if current node's op == Read Or safe & current node is [not root node]
-  if (previous > 0 && (!exclusive || IsSafe(node, op))) {
+  if (previous > 0 && (!exclusive || IsSafe(node, op))) {   // 读的操作 或者说 目前的节点已经是 Safe 的状态
     FreePagesInTrans(exclusive, transaction, previous);
   }
   // 释放完祖先节点之后才将当前的 page 加入到 page set中去
@@ -188,7 +188,7 @@ auto BPLUSTREE_TYPE::FindLeafPage(const KeyType &key, const KeyComparator &compa
     return nullptr;
   }
 
-  /** 2. search from root page */
+  /** 2. start searching from root page */
   Page *page = buffer_pool_manager_->FetchPage(root_page_id_);
   if (page == nullptr) {
     throw "no page can find";
@@ -333,7 +333,7 @@ void BPLUSTREE_TYPE::InsertIntoParent(BPlusTreePage *old_node, const KeyType &ke
   // insert node to parent node after the old node
   parent_node->InsertNodeAfter(old_node->GetPageId(), key, new_node->GetPageId());
 
-  /** 如果 internal page 仍然是满了的，继续分裂 */
+  /** 如果 internal page 仍然是满了的，继续分裂, recursion split & insert into parent node */
   if (parent_node->GetSize() > parent_node->GetMaxSize()) {
     /** recursive insertion */
     InternalPage *new_internal_node = Split(parent_node, transaction);

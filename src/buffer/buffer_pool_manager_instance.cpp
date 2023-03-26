@@ -29,12 +29,27 @@ BufferPoolManagerInstance::BufferPoolManagerInstance(size_t pool_size, DiskManag
   for (size_t i = 0; i < pool_size_; ++i) {
     free_list_.emplace_back(static_cast<int>(i));
   }
+
+  /** 开启后台的刷脏线程，periodic flush the dirty page to the disk & while the size of dirty page is match the
+   * threshold */
+  background_flush_dirty_ = std::thread(&BufferPoolManagerInstance::FlushWork, this);
 }
 
+// 什么时间会销毁掉 buffer pool 呢？
 BufferPoolManagerInstance::~BufferPoolManagerInstance() {
+  done_ = true;
+  if (background_flush_dirty_.joinable()) {
+    background_flush_dirty_.join();
+  }
+
   delete[] pages_;
   delete page_table_;
   delete replacer_;
+}
+
+auto GetCurrentTime() -> std::chrono::microseconds {
+  using namespace std::chrono;
+  return duration_cast<microseconds>(system_clock::now().time_since_epoch());
 }
 
 /**
@@ -81,8 +96,9 @@ auto BufferPoolManagerInstance::NewPgImp(page_id_t *page_id) -> Page * {
     return nullptr;
   }
   res_page = pages_ + frame_index; /** 获得能够替换的 frame page */
+  res_page->WUnlatch();
   if (res_page->IsDirty()) {
-    disk_manager_->WritePage(res_page->GetPageId(), res_page->GetData());
+    disk_manager_->WritePage(res_page->GetPageId(), res_page->GetData());  // write the page back to the disk, if
     res_page->is_dirty_ = false;
   }
   page_id_t new_page_id = AllocatePage();
@@ -98,6 +114,7 @@ auto BufferPoolManagerInstance::NewPgImp(page_id_t *page_id) -> Page * {
 
   replacer_->RecordAccess(frame_index);        /** 更新 LRU-k 的访问结果  */
   replacer_->SetEvictable(frame_index, false); /** 设置为不可以被替换(Pin) */
+  res_page->WUnlatch();
   return res_page;
 }
 
@@ -126,9 +143,11 @@ auto BufferPoolManagerInstance::FetchPgImp(page_id_t page_id) -> Page * {
   frame_id_t frame_index;
   if (page_table_->Find(page_id, frame_index)) {  // 如果说找到了对应的 frame_id
     res_page = pages_ + frame_index;
+    res_page->WUnlatch(); // 获得 page lock, 防止那时候后台线程在刷盘
     res_page->pin_count_++; /** pin count++, 并且设置为不可驱逐 */
     replacer_->SetEvictable(frame_index, false);
     replacer_->RecordAccess(frame_index);  // 放入 LRU 中, 不可以被替换？？？
+    res_page->WUnlatch();
     return res_page;
   }
   /** 2. 没有找到，那么就寻找能够替换的地方从磁盘中读出来然后写入。首先从 free list 中寻找位置 */
@@ -149,6 +168,7 @@ auto BufferPoolManagerInstance::FetchPgImp(page_id_t page_id) -> Page * {
     }
     res_page->pin_count_ = 0; /** 请空 pin_count */
   }
+  res_page->WLatch();
   /** Run here means the page we have determined, and the page is null now */
   page_table_->Remove(res_page->GetPageId());
   page_table_->Insert(page_id, frame_index);
@@ -158,6 +178,7 @@ auto BufferPoolManagerInstance::FetchPgImp(page_id_t page_id) -> Page * {
   res_page->ResetMemory(); /** 如果是驱逐了某个页 那么就需要对内容进行 Reset 操作*/
   disk_manager_->ReadPage(page_id, res_page->GetData());
   res_page->pin_count_++;
+  res_page->WUnlatch();
   return res_page;
 }
 
@@ -169,7 +190,7 @@ auto BufferPoolManagerInstance::FetchPgImp(page_id_t page_id) -> Page * {
  *
  * Decrement the pin count of a page. If the pin count reaches 0, the frame should be evictable by the replacer.
  * Also, set the dirty flag on the page to indicate if the page was modified.
- *
+ * 目前就是将 page 进行了操作之后的处理，可能将数据标记为 dirty
  * @param page_id id of page to be unpinned
  * @param is_dirty true if the page should be marked as dirty, false otherwise
  * @return false if the page is not in the page table or its pin count is <= 0 before this call, true otherwise
@@ -184,12 +205,19 @@ auto BufferPoolManagerInstance::UnpinPgImp(page_id_t page_id, bool is_dirty) -> 
   if (res_page->pin_count_ <= 0) {
     return false; /** 如果说 pin_count 为0*/
   }
+  res_page->WLatch();
   res_page->pin_count_--;  // 而不是 pin_count = 0
   if (res_page->pin_count_ == 0) {
     replacer_->SetEvictable(frame_index, true);
   }
+  res_page->WUnlatch();
   if (is_dirty) { /** 如果说标记为 dirty 肯定是脏页， 不标记并不代表就是干净的 */
     res_page->is_dirty_ = is_dirty;
+    // 这里我们直接将脏页添加到 FLush_list 中让后台线程进行刷盘的操作
+    flush_list_.push_back(res_page);
+    if (GetCurrentTime() - last_flush_time_ >= TIME_THRESHOLD || flush_list_.size() >= COUNT_THRESHOLD) {
+      cond_.notify_one();   // 唤醒后台的线程，dirty page 是怎么产生的/
+    }
   }
   return true;
 }
@@ -226,6 +254,31 @@ void BufferPoolManagerInstance::FlushAllPgsImp() {
   for (size_t i = 0; i < pool_size; i++) {
     page = pages_ + i;
     disk_manager_->WritePage(page->GetPageId(), page->GetData());
+  }
+}
+
+void BufferPoolManagerInstance::FlushWork() {
+  while (true) {
+    // 每间隔 3s 就进行一次刷盘 & 如果说 flush_list 的
+    {
+      std::unique_lock<std::mutex> lock(flush_list_latch_);
+      cond_.wait(lock, [&]() {
+        return (done_ || flush_list_.size() >= COUNT_THRESHOLD || GetCurrentTime() - last_flush_time_ >= TIME_THRESHOLD);
+      });
+      // reach here means we can flush the dirty pages
+      if (!flush_list_.empty()) {
+        for (auto& it : flush_list_) {    // store the dirty page in the flush list
+          it->WLatch();   // 在刷盘的时候直接先对 page 进行上锁，防止前台的任务去访问 this page
+          disk_manager_->WritePage(it->page_id_, it->GetData());  // flush the page to the disk
+          it->WUnlatch();
+        }
+      }
+      flush_list_.clear();
+      last_flush_time_ = GetCurrentTime();  // refresh the last flush time
+      if (done_) {    // the process is done, quit the loop
+        return;
+      }
+    }
   }
 }
 
